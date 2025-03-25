@@ -54,38 +54,36 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
                                geo_level, signal_suffix, lambda, gamma,
                                training_end_date, training_days,
                                value_type, export_dir) {
-  base_name <- generate_filename(indicator=indicator, signal=signal,
+  filepath <- generate_filename(indicator=indicator, signal=signal,
                                  geo_level=geo_level, signal_suffix=signal_suffix,
                                  lambda=lambda, gamma=gamma,
                                  training_end_date=training_end_date,
                                  training_days=training_days,
-                                 value_type=value_type, model_mode=FALSE)
+                                 value_type=value_type, model_mode=FALSE,
+                                 model_save_dir=export_dir)
 
-  signal_info <- str_interp("indicator ${indicator} signal ${signal} value_type ${value_type}")
-
-  components <- c(indicator, signal, signal_suffix)
-  signal_dir <- paste(components[components != ""], collapse="_")
-
-  dir.create(file.path(export_dir, signal_dir), showWarnings = FALSE)
+  components <- strsplit(filepath, "/")[[1]]
+  signal_info <- components[length(components)-1]
+  file_name <- components[length(components)]
 
   if (nrow(test_data) == 0) {
     warning(str_interp("No test data available for ${signal_info}"))
   } else {
     msg_ts(str_interp("Saving predictions to disk for ${signal_info} "))
-    pred_output_file <- str_interp("prediction_${base_name}")
+    pred_output_file <- str_interp("prediction_${file_name}")
 
     prediction_col <- colnames(test_data)[grepl("^predicted", colnames(test_data))]
     expected_col <- c("reference_date", "report_date", "lag", "geo_value",
                       "target_date", "wis", prediction_col)
-    write_csv(test_data[expected_col], file.path(export_dir, signal_dir, pred_output_file))
+    write_csv(test_data[expected_col], file.path(export_dir, signal_info, pred_output_file))
   }
 
   if (nrow(coef_data) == 0) {
     warning(str_interp("No coef data available for ${signal_info}"))
   } else {
     msg_ts(str_interp("Saving coefficients to disk for ${signal_info}"))
-    coef_output_file <- str_interp("coefs_${base_name}")
-    write_csv(coef_data, file.path(export_dir, signal_dir, coef_output_file))
+    coef_output_file <- str_interp("coefs_${file_name}")
+    write_csv(coef_data, file.path(export_dir, signal_info, coef_output_file))
   }
 }
 

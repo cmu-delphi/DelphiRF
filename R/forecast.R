@@ -103,14 +103,13 @@ revision_forecast <- function(train_data, test_data, taus,
   # pre-process the test data with max_raw
   if (make_predictions) {
     # Get model path
-    model_file_name <- generate_filename(indicator=indicator, signal=signal,
+    model_path <- generate_filename(indicator=indicator, signal=signal,
                                          geo_level=geo_level, signal_suffix=signal_suffix,
                                          lambda=lambda[1], gamma=gamma[1], training_end_date=training_end_date,
                                          training_days=training_days,
                                          geo=geo, value_type=value_type,
-                                         test_lag_group=test_lag_group, tau="_all")
-    model_path <- file.path(model_save_dir, model_file_name)
-
+                                         test_lag_group=test_lag_group, tau="_all",
+                                         model_save_dir=model_save_dir)
     # Get the trained_model
     obj <- get_model(model_path, train_data, params_list, response, taus, sqrt_max_raw,
                      lambda[1], gamma[1], lp_solver, train_models)
@@ -130,13 +129,13 @@ revision_forecast <- function(train_data, test_data, taus,
     for (g in gamma) {
       if (l == lambda[1] & g == gamma[1]) next
       # Get model path
-      model_file_name <- generate_filename(indicator=indicator, signal=signal,
+      model_path <- generate_filename(indicator=indicator, signal=signal,
                                            geo_level=geo_level, signal_suffix=signal_suffix,
                                            lambda=l, gamma=g, training_end_date=training_end_date,
                                            training_days=training_days,
                                            geo=geo, value_type=value_type,
-                                           test_lag_group=test_lag_group, tau="_all")
-      model_path <- file.path(model_save_dir, model_file_name)
+                                           test_lag_group=test_lag_group, tau="_all",
+                                           model_save_dir=model_save_dir)
 
 
       # Get the trained_model
@@ -327,6 +326,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     dplyr::filter(.data$target_date > testing_start_date - training_days)
   # Add weighting-related features to training data
   geo_train_data <- add_weights_related(geo_train_data)
+
   geo_test_data <- df %>%
     dplyr::filter(.data$report_date >= testing_start_date)
 
@@ -334,11 +334,12 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
 
   # Split the test lag group if it's a range (e.g., "15-21")
   for (test_lag_group in test_lag_groups) {
+
     info <- strsplit(as.character(test_lag_group), "-")[[1]]
     if (length(info) == 1) {
-      test_lag_group <- as.integer(info[1])
+      test_lag <- as.integer(info[1])
     } else {
-      test_lag_group <- c(as.integer(info[1]), as.integer(info[2]))
+      test_lag <- c(as.integer(info[1]), as.integer(info[2]))
     }
 
     # Retrieve hyperparameters for the given test lag group
@@ -346,17 +347,18 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     l <- handle_hyperparam(lambda, test_lag_group)
     g <- handle_hyperparam(gamma, test_lag_group)
 
-    train_data <- data_filteration(test_lag_group, geo_train_data, l_p)
+    train_data <- data_filteration(test_lag, geo_train_data, l_p)
     if (nrow(train_data) == 0) next
-    test_data <- data_filteration(test_lag_group, geo_test_data, 0)
+    test_data <- data_filteration(test_lag, geo_test_data, 0)
     if (nrow(test_data) == 0) next
+
     results <- revision_forecast(train_data, test_data, taus,
                                  smoothed_target, lagged_term_list,
                                  params_list, temporal_resol,
                                  l, g, lp_solver, test_lag_group,
                                  geo, value_type, model_save_dir,
                                  indicator, signal, geo_level,
-                                 signal_suffix, training_end_date,
+                                 signal_suffix, as.character(testing_start_date),
                                  training_days, train_models,
                                  make_predictions)
 

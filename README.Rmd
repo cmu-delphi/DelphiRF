@@ -57,6 +57,7 @@ For example, ma_dph is a count-based dataset containing the 7-day moving average
 ```{r LOAD MA-DPH}
 library(DelphiRF)
 library(ggplot2)
+library(dplyr)
 data(ma_dph)
 tail(ma_dph)
 ```
@@ -151,7 +152,7 @@ ggplot(visual_part) + geom_line(aes(reference_date, exp(predicted_tau0.5),col="F
   geom_ribbon(fill="indianred3",aes(x = reference_date,ymin=exp(predicted_tau0.25),
                                     ymax=exp(predicted_tau0.75)),alpha=0.3)+
   xlab("Reference Date") + ylab("Estimated cases") +
-  ggtitle("Observed and forecasted number of cases on date 2022-06-15")
+  ggtitle("Observed and forecasted number of cases on date 2022-06-30")
 
 ```
 

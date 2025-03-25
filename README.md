@@ -1,6 +1,6 @@
 <!-- README.Rmd is used for generating README.Rmd. -->
 
-# DelphiRF: Delphi - Revision Forecast
+## \# DelphiRF: Delphi - Revision Forecast
 
 Delphi-RF is a nonparametric quantile regression framework designed to
 correct real-time data revisions in public health surveillance. By
@@ -8,7 +8,7 @@ modeling revision dynamics and incorporating all available updates up to
 a given observation date, Delphi-RF generates distributional forecasts
 of finalized surveillance values for both count and fraction-based data.
 
-##  Installation
+## \## Installation
 
 You can install the package directly from GitHub using:
 
@@ -25,7 +25,7 @@ solvers.
 Follow the installation instructions provided here: [quantgen GitHub
 repository](https://github.com/ryantibs/quantgen).
 
-## Data Preprocessing
+## \## Data Preprocessing
 
 `data_preprocessing` processes input data for DelphiRF, ensuring it is
 structured correctly for modeling. Users are required to specify:
@@ -53,6 +53,7 @@ moving average of daily reported COVID-19 confirmed cases in MA.
 
     library(DelphiRF)
     library(ggplot2)
+    library(dplyr)
     data(ma_dph)
     tail(ma_dph)
 
@@ -162,7 +163,7 @@ as needed using fixed hyperparameters.
       geom_ribbon(fill="indianred3",aes(x = reference_date,ymin=exp(predicted_tau0.25),
                                         ymax=exp(predicted_tau0.75)),alpha=0.3)+
       xlab("Reference Date") + ylab("Estimated cases") +
-      ggtitle("Observed and forecasted number of cases on date 2022-06-15")
+      ggtitle("Observed and forecasted number of cases on date 2022-06-30")
 
 ![](README_files/figure-markdown_strict/unnamed-chunk-5-1.png)
 

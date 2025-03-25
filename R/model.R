@@ -246,7 +246,9 @@ get_model <- function(model_path, train_data, covariates, response, tau,
 generate_filename <- function(indicator, signal,
                               geo_level, signal_suffix, lambda, gamma,
                               training_end_date, training_days=365, geo="",
-                              value_type = "", test_lag_group="", tau="", model_mode = TRUE) {
+                              value_type = "", test_lag_group="", tau="",
+                              model_mode = TRUE,
+                              model_save_dir="./") {
   if (lambda != "") {
     lambda <- str_interp("lambda${lambda}")
   }
@@ -274,17 +276,19 @@ generate_filename <- function(indicator, signal,
       ""
     }
   )
-  components <- c(training_end_date,
-                  indicator, signal, signal_suffix, value_type,
-                  geo_level, geo, test_lag_group, tau, training_days,
-                  lambda, gamma)
+  folder_components <- c(indicator, signal, signal_suffix, value_type, geo_level)
+  filename_components <- c(training_end_date, geo, test_lag_group,
+                           tau, training_days, lambda, gamma)
+
+  foldername <- paste(folder_components[folder_components != ""], collapse="_")
+  create_dir_not_exist(file.path(model_save_dir, foldername))
 
   filename <- paste0(
     # Drop any empty strings.
-    paste(components[components != ""], collapse="_"),
+    paste(filename_components[filename_components != ""], collapse="_"),
     file_type
   )
-  return(filename)
+  return(file.path(model_save_dir, foldername, filename))
 }
 
 
