@@ -23,7 +23,7 @@ Delphi-RF is a nonparametric quantile regression framework designed to correct r
 You can install the package directly from GitHub using:
 
 ```{r, eval=FALSE}
-devtools::install_github("jingjtang/DelphiRF")
+devtools::install_github("cmu-delphi/DelphiRF")
 ```
 
 If you have downloaded the package to a local directory, you can install it with:

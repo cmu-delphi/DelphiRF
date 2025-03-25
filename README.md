@@ -1,6 +1,6 @@
 <!-- README.Rmd is used for generating README.Rmd. -->
 
-## \# DelphiRF: Delphi - Revision Forecast
+## DelphiRF: Delphi - Revision Forecast
 
 Delphi-RF is a nonparametric quantile regression framework designed to
 correct real-time data revisions in public health surveillance. By
@@ -8,11 +8,11 @@ modeling revision dynamics and incorporating all available updates up to
 a given observation date, Delphi-RF generates distributional forecasts
 of finalized surveillance values for both count and fraction-based data.
 
-## \## Installation
+### Installation
 
 You can install the package directly from GitHub using:
 
-    devtools::install_github("jingjtang/DelphiRF")
+    devtools::install_github("cmu-delphi/DelphiRF")
 
 If you have downloaded the package to a local directory, you can install
 it with:
@@ -25,7 +25,7 @@ solvers.
 Follow the installation instructions provided here: [quantgen GitHub
 repository](https://github.com/ryantibs/quantgen).
 
-## \## Data Preprocessing
+### Data Preprocessing
 
 `data_preprocessing` processes input data for DelphiRF, ensuring it is
 structured correctly for modeling. Users are required to specify:
