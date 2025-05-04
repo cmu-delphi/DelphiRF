@@ -49,19 +49,43 @@ data_filteration <- function(test_lag, data, lag_pad) {
 #' @param sqrt_max_raw The maximum value in the dataset, used to determine bin thresholds.
 #' @return A data frame with additional binary indicator columns for square root scaling.
 #' @export
-add_sqrtscale<- function(df, sqrt_max_raw) {
+add_sqrtscale <- function(df, sqrt_max_raw, rare_thresh = 0.05) {
+  bin_counts <- c()
+  n <- nrow(df)
 
-  for (split in seq(0, 2)){ # Ignore the last bin
-    y0_col <- paste0("sqrty", as.character(split))
-
+  for (split in seq(0, 2)) {
+    y_col <- paste0("sqrty", split)
     qv_pre <- sqrt_max_raw * split / 4
-    qv_next <- sqrt_max_raw * (split+1) / 4
+    qv_next <- sqrt_max_raw * (split + 1) / 4
 
-    df[[y0_col]] <- ifelse((df$value_7dav >= (qv_pre)^2) & (df$value_7dav < (qv_next)^2), 1, 0)
-
+    df[[y_col]] <- ifelse((df$value_7dav >= (qv_pre)^2) & (df$value_7dav < (qv_next)^2), 1, 0)
+    bin_counts[y_col] <- sum(df[[y_col]])
   }
-  return (as.data.frame(df))
+
+  # Keep only frequent bins
+  kept_bins <- names(bin_counts)[bin_counts / n >= rare_thresh]
+  df <- df[, c(setdiff(names(df), names(bin_counts)), kept_bins)]
+
+  return(list(data = as.data.frame(df), kept_bins = kept_bins))
 }
+
+add_sqrtscale_test <- function(df, sqrt_max_raw, kept_bins) {
+  for (split in seq(0, 2)) {
+    y_col <- paste0("sqrty", split)
+    qv_pre <- sqrt_max_raw * split / 4
+    qv_next <- sqrt_max_raw * (split + 1) / 4
+
+    df[[y_col]] <- ifelse((df$value_7dav >= (qv_pre)^2) & (df$value_7dav < (qv_next)^2), 1, 0)
+  }
+
+  # Keep only the columns selected from training
+  all_sqrty_cols <- paste0("sqrty", 0:2)
+  drop_cols <- setdiff(all_sqrty_cols, kept_bins)
+  df <- df[, !(names(df) %in% drop_cols)]
+
+  return(as.data.frame(df))
+}
+
 
 #' Fetch model and use to generate predictions/perform corrections
 #'
@@ -184,7 +208,8 @@ exponentiate_preds <- function(test_data, taus) {
 #' @importFrom stringr str_interp
 #' @importFrom quantgen quantile_lasso
 get_model <- function(model_path, train_data, covariates, response, tau,
-                      sqrt_max_raw, lambda, gamma, lp_solver, train_models) {
+                      sqrt_max_raw, kept_bins,
+                      lambda, gamma, lp_solver, train_models) {
   if (train_models || !file.exists(model_path)) {
     if (!train_models && !file.exists(model_path)) {
       warning(str_interp("user requested use of cached model but file {model_path}"),
@@ -210,6 +235,7 @@ get_model <- function(model_path, train_data, covariates, response, tau,
     create_dir_not_exist(dirname(model_path))
     # add extra infomation
     attr(obj, "sqrt_max_raw") <- sqrt_max_raw
+    attr(obj, "kept_bins") <- kept_bins
     attr(obj, "gamma") <- gamma
     attr(obj, "lambda") <- lambda
     attr(obj, "lp_solver") <- lp_solver
@@ -313,8 +339,7 @@ create_params_list <- function(train_data, lagged_term_list) {
     WEEK_ISSUES[1],
     Y7DAV,
     paste0("log_value_7dav_lag", lagged_term_list),
-    paste0("log_delta_value_7dav_lag", lagged_term_list),
-    SQRT_SCALES
+    paste0("log_delta_value_7dav_lag", lagged_term_list)
   )
   # Include log lag adjustments if multiple lags exist
   if (length(unique(train_data$lag)) > 1){
