@@ -96,29 +96,39 @@ revision_forecast <- function(train_data, test_data, taus,
 
   if (train_models) {
     sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
-    train_data <- add_sqrtscale(train_data, sqrt_max_raw)
-    train_data <- train_data[, c(basic_cols, params_list, extra_cols, response)] %>% drop_na()
+    train_result <- add_sqrtscale(train_data, sqrt_max_raw)
+    train_data <- train_result$data
+    kept_bins <- train_result$kept_bins
+    #for (col in kept_bins) {
+    #  proportion <- sum(train_data[[col]]) / nrow(train_data)
+    #  cat(sprintf("Sum of %s: %.4f\n", col, proportion))
+    }
+    train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
   }
 
   # pre-process the test data with max_raw
   if (make_predictions) {
     # Get model path
     model_path <- generate_filename(indicator=indicator, signal=signal,
-                                         geo_level=geo_level, signal_suffix=signal_suffix,
-                                         lambda=lambda[1], gamma=gamma[1], training_end_date=training_end_date,
-                                         training_days=training_days,
-                                         geo=geo, value_type=value_type,
-                                         test_lag_group=test_lag_group, tau="_all",
-                                         model_save_dir=model_save_dir)
+                                    geo_level=geo_level, signal_suffix=signal_suffix,
+                                    lambda=lambda[1], gamma=gamma[1],
+                                    training_end_date=training_end_date,
+                                    training_days=training_days,
+                                    geo=geo, value_type=value_type,
+                                    test_lag_group=test_lag_group, tau="_all",
+                                    model_save_dir=model_save_dir)
     # Get the trained_model
-    obj <- get_model(model_path, train_data, params_list, response, taus, sqrt_max_raw,
+    obj <- get_model(model_path, train_data, params_list, response, taus,
+                     sqrt_max_raw, kept_bins,
                      lambda[1], gamma[1], lp_solver, train_models)
 
     sqrt_max_raw <- attr(obj, "sqrt_max_raw")
-    test_data <- add_sqrtscale(test_data, sqrt_max_raw)
+    kept_bins <- attr(obj, "kept_bins")
+    #test_data <- add_sqrtscale(test_data, sqrt_max_raw)
+    test_data <- add_sqrtscale_test(test_data, sqrt_max_raw, kept_bins)
     test_data <- test_data %>%
-      drop_na(!!!syms(c(params_list, basic_cols))) %>%
-      select(all_of(c(basic_cols, params_list, response)))
+      drop_na(!!!syms(c(params_list, kept_bins, basic_cols))) %>%
+      select(all_of(c(basic_cols, params_list, kept_bins, response)))
     test_data <- get_prediction(test_data, taus, params_list, response, obj,
                                 make_evaluation=TRUE)
     test_data_list <- append(test_data_list, list(test_data))
