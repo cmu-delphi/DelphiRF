@@ -13,6 +13,7 @@ signal_suffix <- ""
 lambda <- 0.1
 gamma <- 0.1
 sqrt_max_raw <- 1
+kept_bins <- "sqrty0"
 test_lag_group <- 1
 model_save_dir <- "./cache"
 geo <- "pa"
@@ -49,11 +50,17 @@ covariates <- c(main_covariate, dayofweek_covariate)
 test_that("testing the generation of model filename prefix", {
   model_file_name <- generate_filename(indicator, signal,
                                        geo_level, signal_suffix, lambda, gamma,
-                                       training_end_date=training_end_date)
+                                       training_end_date=training_end_date,
+                                       model_save_dir=model_save_dir)
   expected <- str_interp(
-    "${format(training_end_date, date_format)}_chng_outpatient_state_tw365_lambda0.1_gamma0.1.rds"
+    file.path(
+      model_save_dir,
+      "chng_outpatient_state/${format(training_end_date, date_format)}_tw365_lambda0.1_gamma0.1.rds"
+    )
   )
   expect_equal(model_file_name, expected)
+
+  unlink(file.path(model_save_dir, "chng_outpatient_state"), recursive = TRUE)
 })
 
 test_that("testing prediction column exponentiation", {
@@ -90,31 +97,31 @@ test_that("testing prediction column exponentiation", {
 
 test_that("testing generating or loading the model", {
   # Check the model that does not exist
-  tau = 0.5
+  tau <- 0.5
   gamma <- 0.1
   lambda <- 0.1
   model_file_name <- generate_filename(indicator, signal,
                                        geo_level, signal_suffix, lambda, gamma,
                                        geo=geo, test_lag_group=test_lag_group, tau=tau,
                                        training_end_date=training_end_date,
-                                       training_days=training_days)
-  model_path <- file.path(model_save_dir, model_file_name)
-
+                                       training_days=training_days,
+                                       model_save_dir=model_save_dir)
   # Generate the model and check again
-  obj <- get_model(model_path, train_data, covariates, response, TAUS,
-                   sqrt_max_raw, lambda, gamma, LP_SOLVER, train_models=TRUE)
-  expect_true(file.exists(model_path))
-  created <- file.info(model_path)$ctime
+  obj <- get_model(model_file_name, train_data, covariates, response, TAUS,
+                   sqrt_max_raw, kept_bins,
+                   lambda, gamma, LP_SOLVER, train_models=TRUE)
+  expect_true(file.exists(model_file_name))
+  created <- file.info(model_file_name)$ctime
   expect_equal(attr(obj, "sqrt_max_raw"), sqrt_max_raw)
 
   # Check that the model was not generated again.
   # Load existed model
-  obj <- get_model(model_path, train_data, covariates, response, TAUS,
-                   sqrt_max_raw, lambda, gamma, LP_SOLVER, train_models=FALSE)
-  expect_equal(file.info(model_path)$ctime, created)
+  obj <- get_model(model_file_name, train_data, covariates, response, TAUS,
+                   sqrt_max_raw, kept_bins,
+                   lambda, gamma, LP_SOLVER, train_models=FALSE)
+  expect_equal(file.info(model_file_name)$ctime, created)
 
-  expect_silent(file.remove(model_path))
-  # Remove the model generated at the end
+  unlink(file.path(model_save_dir, "chng_outpatient_state"), recursive = TRUE)
 })
 
 test_that("testing making predictions", {
@@ -124,11 +131,12 @@ test_that("testing making predictions", {
                                        geo_level, signal_suffix, lambda, gamma,
                                        geo=geo, test_lag_group=test_lag_group, tau=tau,
                                        training_end_date=training_end_date,
-                                       training_days=training_days)
-  model_path <- file.path(model_save_dir, model_file_name)
+                                       training_days=training_days,
+                                       model_save_dir=model_save_dir)
 
-  obj <- get_model(model_path, train_data, covariates, response, tau,
-                   sqrt_max_raw, lambda, gamma, LP_SOLVER, train_models=TRUE)
+  obj <- get_model(model_file_name, train_data, covariates, response, tau,
+                   sqrt_max_raw, kept_bins,
+                   lambda, gamma, LP_SOLVER, train_models=TRUE)
 
   expect_error(get_prediction(test_data, tau, covariates, response, NULL),
                "Model not found. Ensure the model is trained or loaded before prediction.")
@@ -142,6 +150,7 @@ test_that("testing making predictions", {
   expect_true("lambda" %in% colnames(result))
   expect_equal(unique(result$gamma), gamma)
   expect_equal(unique(result$lambda), lambda)
+  unlink(file.path(model_save_dir, "chng_outpatient_state"), recursive = TRUE)
 })
 
 
@@ -176,19 +185,87 @@ test_that("testing result evaluation", {
 })
 
 
-test_that("testing adding square root scale", {
+test_that("testing adding square root scale with rare bin removal", {
   sample_data <- data.frame(value_7dav = c(1, 4, 9, 16, 25, 36, 49, 64))
   sqrt_max_raw_value <- sqrt(max(sample_data$value_7dav))
 
-  # Run function
-  transformed_data <- add_sqrtscale(sample_data, sqrt_max_raw_value)
+  result <- add_sqrtscale(sample_data, sqrt_max_raw_value, rare_thresh = 0.01)
+  transformed_data <- result$data
+  kept_bins <- result$kept_bins
 
-  expect_true(all(c("sqrty0", "sqrty1", "sqrty2") %in% colnames(transformed_data)))
+  # Check that only the kept bins are present
+  expect_true(all(kept_bins %in% colnames(transformed_data)))
 
-  expect_equal(transformed_data$sqrty0, ifelse(sample_data$value_7dav < (sqrt_max_raw_value * (1/4))^2, 1, 0))
-  expect_equal(transformed_data$sqrty1, ifelse(sample_data$value_7dav >= (sqrt_max_raw_value * (1/4))^2 & sample_data$value_7dav < (sqrt_max_raw_value * (2/4))^2, 1, 0))
-  expect_equal(transformed_data$sqrty2, ifelse(sample_data$value_7dav >= (sqrt_max_raw_value * (2/4))^2 & sample_data$value_7dav < (sqrt_max_raw_value * (3/4))^2, 1, 0))
+  # Check content of each kept bin
+  if ("sqrty0" %in% kept_bins) {
+    expect_equal(transformed_data$sqrty0,
+                 ifelse(sample_data$value_7dav < (sqrt_max_raw_value * (1/4))^2, 1, 0))
+  }
+  if ("sqrty1" %in% kept_bins) {
+    expect_equal(transformed_data$sqrty1,
+                 ifelse(sample_data$value_7dav >= (sqrt_max_raw_value * (1/4))^2 &
+                          sample_data$value_7dav < (sqrt_max_raw_value * (2/4))^2, 1, 0))
+  }
+  if ("sqrty2" %in% kept_bins) {
+    expect_equal(transformed_data$sqrty2,
+                 ifelse(sample_data$value_7dav >= (sqrt_max_raw_value * (2/4))^2 &
+                          sample_data$value_7dav < (sqrt_max_raw_value * (3/4))^2, 1, 0))
+  }
 })
+
+test_that("add_sqrtscale handles bin creation, rare removal, and return structure correctly", {
+  # --- Test 1: Basic bin creation ---
+  sample_data1 <- data.frame(value_7dav = c(1, 4, 9, 16, 25, 36, 49, 64))
+  sqrt_max1 <- sqrt(max(sample_data1$value_7dav))
+  result1 <- add_sqrtscale(sample_data1, sqrt_max1, rare_thresh = 0.01)
+  df1 <- result1$data
+  bins1 <- result1$kept_bins
+
+  expect_true(all(paste0("sqrty", 0:2) %in% bins1))
+  expect_true(all(bins1 %in% colnames(df1)))
+
+  # --- Test 2: Rare bins dropped ---
+  sample_data2 <- data.frame(value_7dav = c(1, 2, 3, 4, 5, 6, 7, 64))
+  sqrt_max2 <- sqrt(max(sample_data2$value_7dav))
+  result2 <- add_sqrtscale(sample_data2, sqrt_max2, rare_thresh = 0.2)
+  df2 <- result2$data
+  bins2 <- result2$kept_bins
+
+  expect_lt(length(bins2), 3)
+  expect_true(all(bins2 %in% colnames(df2)))
+
+  # --- Test 3: All bins dropped if all are rare ---
+  sample_data3 <- data.frame(value_7dav = c(100, 200, 300))
+  sqrt_max3 <- sqrt(max(sample_data3$value_7dav))
+  result3 <- add_sqrtscale(sample_data3, sqrt_max3, rare_thresh = 0.9)
+  df3 <- result3$data
+  bins3 <- result3$kept_bins
+
+  expect_equal(length(bins3), 0)
+  expect_false(any(grepl("^sqrty", colnames(df3))))
+
+  # --- Test 4: Edge threshold bin retention ---
+  sample_data4 <- data.frame(value_7dav = rep(c(1, 16, 36), times = c(3, 3, 4)))
+  sqrt_max4 <- sqrt(max(sample_data4$value_7dav))
+  result4 <- add_sqrtscale(sample_data4, sqrt_max4, rare_thresh = 0.3)
+  df4 <- result4$data
+  bins4 <- result4$kept_bins
+
+  expect_true(length(bins4) >= 1)
+  expect_true(all(bins4 %in% colnames(df4)))
+
+  # --- Test 5: Return structure correctness ---
+  sample_data5 <- data.frame(value_7dav = c(1, 4, 9, 16))
+  sqrt_max5 <- sqrt(max(sample_data5$value_7dav))
+  result5 <- add_sqrtscale(sample_data5, sqrt_max5)
+
+  expect_true(is.list(result5))
+  expect_true("data" %in% names(result5))
+  expect_true("kept_bins" %in% names(result5))
+  expect_true(is.data.frame(result5$data))
+  expect_true(is.character(result5$kept_bins))
+})
+
 
 test_that("testing data_filteration", {
   data <- data.frame(lag = -5:5, value = rnorm(11))
