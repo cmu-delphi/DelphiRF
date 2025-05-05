@@ -313,7 +313,7 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #' @importFrom dplyr %>% filter bind_rows
 #' @export
 DelphiRF <- function(df, testing_start_date, taus=TAUS,
-                     test_lag_groups=TEST_LAG_GROUPS,
+                     test_lag_groups=NULL,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
                      params_list=NULL,
@@ -330,6 +330,15 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      make_predictions = TRUE) {
 
   testing_start_date <- as.Date(testing_start_date)
+
+  if (is.null(test_lag_groups)) {
+    if (temporal_resol == "daily") {
+      test_lag_groups = TEST_LAG_GROUPS_DAILY
+    }
+    elif (temporal_resol == "weekly") {
+      test_lag_groups = TEST_LAG_GROUPS_WEEKLY
+    }
+  }
 
   geo_train_data <- df %>%
     dplyr::filter(.data$target_date <= testing_start_date) %>%
