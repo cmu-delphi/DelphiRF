@@ -326,16 +326,14 @@ generate_filename <- function(indicator, signal,
 #'
 #' @param train_data Data frame containing training data, including lag values.
 #' @param lagged_term_list Numeric vector specifying the list of lags to be considered.
+#' @param temporal_resol Character; either "daily" or "weekly" resolution.
 #'
 #' @export
 #'
 #' @importFrom dplyr mutate select
 #'
-create_params_list <- function(train_data, lagged_term_list) {
-  dayofweek <- c("Mon", "Weekends")
+create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
   params_list <- c(
-    paste0(dayofweek, "_ref"),
-    paste0(dayofweek, "_issue"),
     WEEK_ISSUES[1],
     Y7DAV,
     paste0("log_value_7dav_lag", lagged_term_list),
@@ -345,5 +343,16 @@ create_params_list <- function(train_data, lagged_term_list) {
   if (length(unique(train_data$lag)) > 1){
     params_list <- c(params_list, LOG_LAG)
   }
-  return(params_list)
+
+  dayofweek <- c("Mon", "Weekends")
+  extra_params_for_daily <- c(
+    paste0(dayofweek, "_ref"),
+    paste0(dayofweek, "_issue")
+  )
+
+  if (temporal_resol == "daily"){
+    return (c(params_list, extra_params_for_daily))
+  } else {
+    return(params_list)
+  }
 }

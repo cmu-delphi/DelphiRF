@@ -77,7 +77,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
   }
 
   if (smoothed_target) {
