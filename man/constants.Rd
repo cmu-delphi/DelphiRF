@@ -19,6 +19,7 @@
 \alias{SQRT_SCALES}
 \alias{TODAY}
 \alias{TEST_LAG_GROUPS_DAILY}
+\alias{TEST_LAG_GROUPS_WEEKLY}
 \alias{INDICATORS_AND_SIGNALS}
 \title{Constants}
 \format{
@@ -54,7 +55,7 @@ An object of class \code{character} of length 3.
 
 An object of class \code{Date} of length 1.
 
-An object of class \code{character} of length 11.
+An object of class \code{character} of length 19.
 
 An object of class \code{character} of length 11.
 
@@ -95,7 +96,7 @@ TODAY
 
 TEST_LAG_GROUPS_DAILY
 
-TEST_LAG_GROUPS_DAILY
+TEST_LAG_GROUPS_WEEKLY
 
 INDICATORS_AND_SIGNALS
 }
