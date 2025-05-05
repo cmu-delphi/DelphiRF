@@ -73,6 +73,9 @@ TODAY <- Sys.Date()
 #' @rdname constants
 #' @export
 TEST_LAG_GROUPS_DAILY <- c(as.character(0:14), c("15-21", "22-35", "36-49", "50-59"))
+
+#' @rdname constants
+#' @export
 TEST_LAG_GROUPS_DAILY <- c(as.character(seq(0, 70, 7)))
 
 

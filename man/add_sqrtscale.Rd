@@ -4,7 +4,7 @@
 \alias{add_sqrtscale}
 \title{Add Square Root Scale Indicator Columns}
 \usage{
-add_sqrtscale(df, sqrt_max_raw)
+add_sqrtscale(df, sqrt_max_raw, rare_thresh = 0.05)
 }
 \arguments{
 \item{df}{Data frame containing the data.}

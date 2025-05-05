@@ -11,6 +11,7 @@ get_model(
   response,
   tau,
   sqrt_max_raw,
+  kept_bins,
   lambda,
   gamma,
   lp_solver,

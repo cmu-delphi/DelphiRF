@@ -17,7 +17,8 @@ generate_filename(
   value_type = "",
   test_lag_group = "",
   tau = "",
-  model_mode = TRUE
+  model_mode = TRUE,
+  model_save_dir = "./"
 )
 }
 \arguments{

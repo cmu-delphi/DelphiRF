@@ -18,7 +18,7 @@
 \alias{WEEK_ISSUES}
 \alias{SQRT_SCALES}
 \alias{TODAY}
-\alias{TEST_LAG_GROUPS}
+\alias{TEST_LAG_GROUPS_DAILY}
 \alias{INDICATORS_AND_SIGNALS}
 \title{Constants}
 \format{
@@ -54,7 +54,9 @@ An object of class \code{character} of length 3.
 
 An object of class \code{Date} of length 1.
 
-An object of class \code{character} of length 19.
+An object of class \code{character} of length 11.
+
+An object of class \code{character} of length 11.
 
 An object of class \code{tbl_df} (inherits from \code{tbl}, \code{data.frame}) with 4 rows and 4 columns.
 }
@@ -91,7 +93,9 @@ SQRT_SCALES
 
 TODAY
 
-TEST_LAG_GROUPS
+TEST_LAG_GROUPS_DAILY
+
+TEST_LAG_GROUPS_DAILY
 
 INDICATORS_AND_SIGNALS
 }

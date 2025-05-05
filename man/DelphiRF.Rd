@@ -8,7 +8,7 @@ DelphiRF(
   df,
   testing_start_date,
   taus = TAUS,
-  test_lag_groups = TEST_LAG_GROUPS,
+  test_lag_groups = NULL,
   smoothed_target = TRUE,
   lagged_term_list = NULL,
   params_list = NULL,
@@ -79,5 +79,5 @@ DelphiRF(
 }
 \description{
 This function performs a forecasting operation using historical data, applying
-hyperparameters and lag-based adjustments for different test lag groups.
+hyper-parameters and lag-based adjustments for different test lag groups.
 }

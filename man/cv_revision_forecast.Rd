@@ -37,6 +37,10 @@ cv_revision_forecast(
 
 \item{smoothed_target}{A logical value indicating whether the target variable should be smoothed.}
 
+\item{lagged_term_list}{Optional list of lagged terms to be included in the model.}
+
+\item{params_list}{Optional list of additional parameters for the model.}
+
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
 
 \item{lambda_candidates}{Numeric vector of lambda values to try.}
