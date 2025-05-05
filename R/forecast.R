@@ -335,7 +335,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     if (temporal_resol == "daily") {
       test_lag_groups = TEST_LAG_GROUPS_DAILY
     }
-    elif (temporal_resol == "weekly") {
+    else if (temporal_resol == "weekly") {
       test_lag_groups = TEST_LAG_GROUPS_WEEKLY
     }
   }
