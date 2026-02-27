@@ -331,6 +331,21 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
 
   testing_start_date <- as.Date(testing_start_date)
 
+  # ---- Auto-detect temporal resolution from lag spacing ----
+  if ("lag" %in% names(df)) {
+    lag_vals <- sort(unique(df$lag))
+    
+    if (length(lag_vals) >= 2) {
+      lag_diffs <- unique(diff(lag_vals))
+      
+      # Detect weekly spacing
+      if (length(lag_diffs) == 1 && lag_diffs == 7) {
+        temporal_resol <- "weekly"
+        message("Auto-detected weekly temporal resolution from lag spacing.")
+      }
+    }
+  }
+
   if (is.null(test_lag_groups)) {
     if (temporal_resol == "daily") {
       test_lag_groups = TEST_LAG_GROUPS_DAILY
