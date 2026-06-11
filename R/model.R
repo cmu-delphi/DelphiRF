@@ -142,16 +142,25 @@ get_prediction <- function(test_data, taus, covariates, response, obj,
   return (as.data.frame(test_data))
 }
 
+#' Weighted interval score for a single observation
+#'
+#' Inlined from the evalcast package.
+#'
+#' @param taus Numeric vector of quantile levels.
+#' @param residuals Numeric vector of (quantile_prediction - actual) values.
+#' @param point_pred Unused; kept for interface compatibility.
+#' @keywords internal
+weighted_interval_score <- function(taus, residuals, point_pred) {
+  alpha <- 2 * pmin(taus, 1 - taus)
+  mean(alpha * (abs(residuals) + (residuals) * (2 * (taus >= 0.5) - 1)))
+}
+
 #' Evaluation of the test results based on WIS score
-#' The WIS score calculation is based on the weighted_interval_score function
-#' from the `evalcast` package from Delphi
 #'
 #' @param test_data dataframe with a column containing the prediction results of
 #'    each requested quantile. Each row represents an update with certain
 #'    (reference_date, report_date, location) combination.
 #' @template taus-template
-#'
-#' @importFrom evalcast weighted_interval_score
 #'
 #' @export
 evaluate <- function(test_data, taus, response) {
