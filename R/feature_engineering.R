@@ -188,8 +188,13 @@ add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=
 #' @importFrom dplyr rename
 #' @export
 add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_resol) {
-  # Add target
-  target_df <- df[df[[lag_col]]==ref_lag, c(refd_col, "report_date", value_col, "value_7dav")]
+  available_lags <- sort(unique(df[[lag_col]]))
+  effective_ref_lag <- min(available_lags[available_lags >= ref_lag])
+  if (is.infinite(effective_ref_lag))
+    stop(sprintf("ref_lag %d exceeds all available lags (max %d)", ref_lag, max(available_lags)))
+  if (effective_ref_lag != ref_lag)
+    message(sprintf("ref_lag %d not available; using next lag %d", ref_lag, effective_ref_lag))
+  target_df <- df[df[[lag_col]] == effective_ref_lag, c(refd_col, "report_date", value_col, "value_7dav")]
   # Rename columns for clarity
   target_df <- target_df %>%
     dplyr::rename(
