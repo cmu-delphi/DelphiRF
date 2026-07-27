@@ -341,7 +341,7 @@ generate_filename <- function(indicator, signal,
 #'
 #' @importFrom dplyr mutate select
 #'
-create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
+create_params_list <- function(train_data, lagged_term_list, temporal_resol, extra_params = NULL) {
   params_list <- c(
     WEEK_ISSUES[1],
     Y7DAV,
@@ -359,9 +359,6 @@ create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
     paste0(dayofweek, "_issue")
   )
 
-  if (temporal_resol == "daily"){
-    return (c(params_list, extra_params_for_daily))
-  } else {
-    return(params_list)
-  }
+  base_params <- if (temporal_resol == "daily") c(params_list, extra_params_for_daily) else params_list
+  if (!is.null(extra_params)) c(base_params, extra_params) else base_params
 }

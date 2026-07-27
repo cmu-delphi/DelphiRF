@@ -41,6 +41,7 @@ revision_forecast <- function(train_data, test_data, taus,
                               smoothed_target=TRUE,
                               lagged_term_list=NULL,
                               params_list=NULL,
+                              extra_params=NULL,
                               temporal_resol="daily",
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
@@ -77,7 +78,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, extra_params)
   }
 
   if (smoothed_target) {
@@ -317,6 +318,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
                      params_list=NULL,
+                     extra_params=NULL,
                      lambda=LAMBDA, gamma=GAMMA, lag_pad=LAG_PAD,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
@@ -388,7 +390,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
 
     results <- revision_forecast(train_data, test_data, taus,
                                  smoothed_target, lagged_term_list,
-                                 params_list, temporal_resol,
+                                 params_list, extra_params, temporal_resol,
                                  l, g, lp_solver, test_lag_group,
                                  geo, value_type, model_save_dir,
                                  indicator, signal, geo_level,
