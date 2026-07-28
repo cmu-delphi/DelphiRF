@@ -341,3 +341,54 @@ test_that("Testing add weighted related features", {
   expect_true(all(expected_columns %in% colnames(result)))
 
 })
+
+
+make_daily_tri <- function(ref_dates, lags) {
+  do.call(rbind, lapply(ref_dates, function(rd) {
+    data.frame(
+      reference_date = rd,
+      lag = lags,
+      value = as.numeric(as.Date(rd) - as.Date("2022-12-31"))
+    )
+  }))
+}
+
+test_that("data_preprocessing drops rows where aux has no coverage (earlier min)", {
+  ref_all  <- seq(as.Date("2023-01-01"), as.Date("2023-01-15"), by = "day")
+  ref_late <- seq(as.Date("2023-01-08"), as.Date("2023-01-15"), by = "day")
+
+  primary <- make_daily_tri(ref_all, 1:3)
+  aux     <- make_daily_tri(ref_late, 1:3)
+
+  result <- data_preprocessing(
+    primary,
+    value_col = "value", refd_col = "reference_date", lag_col = "lag",
+    ref_lag = 5L, temporal_resol = "daily",
+    aux_triangles = list(beds = aux)
+  )
+
+  expect_true(all(result$reference_date >= as.Date("2023-01-08")))
+  expect_true("beds_value_raw" %in% colnames(result))
+  expect_false(anyNA(result[["beds_value_raw"]]))
+})
+
+test_that("data_preprocessing forward-fills aux to primary max report_date (later max)", {
+  ref_dates    <- seq(as.Date("2023-01-01"), as.Date("2023-01-10"), by = "day")
+  primary <- make_daily_tri(ref_dates, 1:5)
+  aux     <- make_daily_tri(ref_dates, 1:3)
+  # primary max report_date = 2023-01-10 + 5 = 2023-01-15
+  # aux    max report_date  = 2023-01-10 + 3 = 2023-01-13
+
+  result <- data_preprocessing(
+    primary,
+    value_col = "value", refd_col = "reference_date", lag_col = "lag",
+    ref_lag = 6L, temporal_resol = "daily",
+    aux_triangles = list(beds = aux)
+  )
+
+  # rows with lag 4 and 5 (report_dates past aux max) should be present
+  expect_true(any(result$lag == 4L))
+  expect_true(any(result$lag == 5L))
+  expect_true("beds_value_raw" %in% colnames(result))
+  expect_false(anyNA(result[["beds_value_raw"]]))
+})

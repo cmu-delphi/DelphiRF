@@ -56,7 +56,8 @@ fill_rows <- function(df, refd_col, lag_col, min_refd, max_refd, ref_lag) {
 #' @importFrom tidyr fill pivot_wider pivot_longer replace_na expand_grid
 #' @importFrom dplyr %>% select left_join mutate arrange distinct filter everything
 #' @export
-fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_resol="daily") {
+fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_resol = "daily",
+                              max_report_override = NULL) {
   df <- df %>% distinct()  # Remove duplicates if any
 
   if (nrow(df) == 0) {
@@ -86,6 +87,14 @@ fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_reso
     gap <- 7
   } else {
     stop("Invalid temporal_resol. Choose either 'daily' or 'weekly'.")
+  }
+
+  if (!is.null(max_report_override)) {
+    max_report_override <- as.Date(max_report_override)
+    if (max_report_override > max(all_report_dates)) {
+      extra <- seq(max(all_report_dates) + gap, max_report_override, by = gap)
+      all_report_dates <- c(all_report_dates, extra)
+    }
   }
 
   # Create a complete grid of all combinations of reference_date and report_date

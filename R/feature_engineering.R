@@ -294,8 +294,10 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol="daily") 
 #'   all value/log columns prefixed with `{name}_`.  Useful predictors are
 #'   `{name}_log_value_7dav_lag{N}` and `{name}_log_delta_value_7dav_lag{N}`;
 #'   see [aux_feature_names()].
-process_aux_triangle <- function(df, name, lagged_term_list, temporal_resol, smoothed) {
-  filled_df <- fill_missing_updates(df, "value", "reference_date", "lag", temporal_resol)
+process_aux_triangle <- function(df, name, lagged_term_list, temporal_resol, smoothed,
+                                max_report_override = NULL) {
+  filled_df <- fill_missing_updates(df, "value", "reference_date", "lag", temporal_resol,
+                                    max_report_override = max_report_override)
   if (!smoothed && temporal_resol == "daily") {
     filled_df <- add_7davs(filled_df, "value_raw", "reference_date", "lag")
   } else {
@@ -443,14 +445,17 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   merged_df <- add_params_for_dates(merged_df, "reference_date", "lag", temporal_resol)
 
   if (!is.null(aux_triangles)) {
+    primary_max_report <- max(merged_df$report_date)
     for (nm in names(aux_triangles)) {
       aux_processed <- process_aux_triangle(
-        aux_triangles[[nm]], nm, lagged_term_list, temporal_resol, smoothed
+        aux_triangles[[nm]], nm, lagged_term_list, temporal_resol, smoothed,
+        max_report_override = primary_max_report
       )
       merged_df <- dplyr::left_join(
         merged_df, aux_processed,
         by = c("reference_date", "report_date", "lag")
       )
+      merged_df <- merged_df[!is.na(merged_df[[paste0(nm, "_value_raw")]]), ]
     }
   }
 
