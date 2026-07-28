@@ -298,6 +298,12 @@ process_aux_triangle <- function(df, name, lagged_term_list, temporal_resol, smo
                                 max_report_override = NULL) {
   filled_df <- fill_missing_updates(df, "value", "reference_date", "lag", temporal_resol,
                                     max_report_override = max_report_override)
+  if (nrow(filled_df) == 0) {
+    expected_cols <- c("reference_date", "report_date", "lag",
+                       aux_feature_names(name, lagged_term_list))
+    return(setNames(data.frame(matrix(ncol = length(expected_cols), nrow = 0)),
+                    expected_cols))
+  }
   if (!smoothed && temporal_resol == "daily") {
     filled_df <- add_7davs(filled_df, "value_raw", "reference_date", "lag")
   } else {
@@ -451,6 +457,10 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
         aux_triangles[[nm]], nm, lagged_term_list, temporal_resol, smoothed,
         max_report_override = primary_max_report
       )
+      if (nrow(aux_processed) == 0L) {
+        merged_df <- merged_df[0L, ]
+        break
+      }
       merged_df <- dplyr::left_join(
         merged_df, aux_processed,
         by = c("reference_date", "report_date", "lag")

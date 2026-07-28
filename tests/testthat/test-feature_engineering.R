@@ -392,3 +392,39 @@ test_that("data_preprocessing forward-fills aux to primary max report_date (late
   expect_true("beds_value_raw" %in% colnames(result))
   expect_false(anyNA(result[["beds_value_raw"]]))
 })
+
+test_that("data_preprocessing returns 0 rows when aux has no data for the geo", {
+  ref_dates <- seq(as.Date("2023-01-01"), as.Date("2023-01-15"), by = "day")
+  primary   <- make_daily_tri(ref_dates, 1:4)
+  empty_aux <- data.frame(
+    reference_date = as.Date(character()),
+    report_date    = as.Date(character()),
+    lag            = integer(),
+    value          = numeric()
+  )
+
+  result <- data_preprocessing(
+    primary,
+    value_col = "value", refd_col = "reference_date", lag_col = "lag",
+    ref_lag = 5L, temporal_resol = "daily",
+    aux_triangles = list(beds = empty_aux)
+  )
+
+  expect_equal(nrow(result), 0L)
+})
+
+test_that("process_aux_triangle returns zero-row df with correct columns when aux is empty", {
+  empty_aux <- data.frame(
+    reference_date = as.Date(character()),
+    report_date    = as.Date(character()),
+    lag            = integer(),
+    value          = numeric()
+  )
+  lagged_term_list <- c(1L, 7L)
+
+  result <- process_aux_triangle(empty_aux, "beds", lagged_term_list, "daily", TRUE)
+
+  expect_equal(nrow(result), 0L)
+  expect_true(all(aux_feature_names("beds", lagged_term_list) %in% colnames(result)))
+  expect_true(all(c("reference_date", "report_date", "lag") %in% colnames(result)))
+})
