@@ -341,23 +341,25 @@ generate_filename <- function(indicator, signal,
 #'
 #' @importFrom dplyr mutate select
 #'
-create_params_list <- function(train_data, lagged_term_list, temporal_resol, extra_params = NULL) {
+create_params_list <- function(train_data, lagged_term_list, temporal_resol,
+                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                               extra_params = NULL) {
   params_list <- c(
     WEEK_ISSUES[1],
     Y7DAV,
     paste0("log_value_7dav_lag", lagged_term_list),
     paste0("log_delta_value_7dav_lag", lagged_term_list)
   )
-  # Include log lag adjustments if multiple lags exist
-  if (length(unique(train_data$lag)) > 1){
+  if (length(unique(train_data$lag)) > 1) {
     params_list <- c(params_list, LOG_LAG)
   }
 
-  dayofweek <- c("Mon", "Weekends")
-  extra_params_for_daily <- c(
-    paste0(dayofweek, "_ref"),
-    paste0(dayofweek, "_issue")
-  )
+  group_names <- if (!is.null(names(onehot_weekdays))) {
+    names(onehot_weekdays)
+  } else {
+    vapply(onehot_weekdays, function(grp) paste0(grp, collapse = ""), character(1))
+  }
+  extra_params_for_daily <- c(paste0(group_names, "_ref"), paste0(group_names, "_issue"))
 
   base_params <- if (temporal_resol == "daily") c(params_list, extra_params_for_daily) else params_list
   if (!is.null(extra_params)) c(base_params, extra_params) else base_params

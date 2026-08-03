@@ -189,57 +189,73 @@ test_that("add_log_transformed correctly applies log transformation", {
 })
 
 
-test_that("add_params_for_dates correctly adds date-related features", {
-  # Create a sample data frame
+test_that("add_grouped_dayofweek creates one column per group with correct values", {
+  # Mon=1, Tue=2, ..., Sun=7 via %u format
+  df <- data.frame(
+    date = as.Date(c("2024-02-26", "2024-02-27", "2024-02-28", "2024-03-01", "2024-03-02", "2024-03-03"))
+    # Mon,        Tue,           Wed,           Fri,           Sat,           Sun
+  )
+  groups <- list(Mon = c("Mon"), Weekends = c("Sat", "Sun"), Other = c("Tue", "Wed", "Thurs", "Fri"))
+  result <- add_grouped_dayofweek(df, "date", "_ref", groups)
+
+  expect_true(all(c("Mon_ref", "Weekends_ref", "Other_ref") %in% colnames(result)))
+  expect_equal(result$Mon_ref,      c(1L, 0L, 0L, 0L, 0L, 0L))
+  expect_equal(result$Weekends_ref, c(0L, 0L, 0L, 0L, 1L, 1L))
+  expect_equal(result$Other_ref,    c(0L, 1L, 1L, 1L, 0L, 0L))
+  # every row sums to exactly 1 (exhaustive, non-overlapping groups)
+  expect_true(all(rowSums(result[, c("Mon_ref", "Weekends_ref", "Other_ref")]) == 1L))
+})
+
+test_that("add_grouped_dayofweek derives column names from day abbreviations when unnamed", {
+  df <- data.frame(date = as.Date(c("2024-02-26", "2024-03-02")))  # Mon, Sat
+  result <- add_grouped_dayofweek(df, "date", "_ref", list(c("Mon"), c("Sat", "Sun")))
+  expect_true("Mon_ref" %in% colnames(result))
+  expect_true("SatSun_ref" %in% colnames(result))
+})
+
+test_that("add_params_for_dates uses default Mon/Weekends groups in daily mode", {
   test_df <- data.frame(
     ref_date = as.Date(c("2022-01-01", "2022-01-05", "2022-01-10", "2022-02-01", "2022-02-15")),
     lag = c(0, 2, 5, 7, 10)
   )
-
-  # Run the function with daily resolution
   df_with_params <- add_params_for_dates(test_df, "ref_date", "lag", "daily")
 
-  # Check that report_date column is correctly created
   expect_true("report_date" %in% colnames(df_with_params))
-
-  # Verify day-of-week encoding is added for both reference and issue date
-  expect_true(all(paste0(WEEKDAYS_ABBR, "_ref") %in% colnames(df_with_params)))
-  expect_true(all(paste0(WEEKDAYS_ABBR, "_issue") %in% colnames(df_with_params)))
-
-  expect_true(all(c("Weekends_issue", "Weekends_ref") %in% colnames(df_with_params)))
-
-  # Verify that exactly one column per row is 1 for each set of one-hot encoded days
-  expect_true(all(rowSums(df_with_params[, paste0(WEEKDAYS_ABBR, "_ref")]) == 1))
-  expect_true(all(rowSums(df_with_params[, paste0(WEEKDAYS_ABBR, "_issue")]) == 1))
-
-  # Verify week-of-month encoding is added for report_date
+  expect_true(all(c("Mon_ref", "Weekends_ref", "Mon_issue", "Weekends_issue") %in% colnames(df_with_params)))
+  # old per-day columns should not be present
+  expect_false(any(c("Tue_ref", "Wed_ref", "Thurs_ref", "Fri_ref", "Sat_ref", "Sun_ref") %in% colnames(df_with_params)))
+  # each row is either Mon (1,0), Weekends (0,1), or Other (0,0) — never (1,1)
+  expect_true(all(df_with_params$Mon_ref + df_with_params$Weekends_ref <= 1L))
+  expect_true(all(df_with_params$Mon_issue + df_with_params$Weekends_issue <= 1L))
   expect_true(all(WEEK_ISSUES %in% colnames(df_with_params)))
-
-  # Check that only one week column per row has a value of 1
   expect_true(all(rowSums(df_with_params[, WEEK_ISSUES]) <= 1))
 })
 
+test_that("add_params_for_dates respects custom onehot_weekdays", {
+  # Dates: 2024-02-26=Mon, 2024-02-28=Wed, 2024-03-01=Fri, 2024-03-02=Sat
+  test_df <- data.frame(
+    ref_date = as.Date(c("2024-02-26", "2024-02-28", "2024-03-01", "2024-03-02")),
+    lag = c(0, 0, 0, 0)
+  )
+  groups <- list(WedFri = c("Wed", "Fri"), Other = c("Mon", "Tue", "Thurs", "Sat", "Sun"))
+  result <- add_params_for_dates(test_df, "ref_date", "lag", "daily", onehot_weekdays = groups)
+
+  expect_true(all(c("WedFri_ref", "Other_ref") %in% colnames(result)))
+  expect_equal(result$WedFri_ref, c(0L, 1L, 1L, 0L))
+  expect_equal(result$Other_ref,  c(1L, 0L, 0L, 1L))
+})
+
 test_that("add_params_for_dates correctly handles weekly resolution", {
-  # Create a sample data frame
   test_df <- data.frame(
     ref_date = as.Date(c("2022-03-01", "2022-03-08", "2022-03-15")),
     lag = c(0, 7, 14)
   )
-
-  # Run the function with weekly resolution
   df_with_params <- add_params_for_dates(test_df, "ref_date", "lag", "weekly")
 
-  # Check that report_date column is correctly created
   expect_true("report_date" %in% colnames(df_with_params))
-
-  # Verify that day-of-week encoding is NOT added in weekly mode
-  expect_false(any(paste0(WEEKDAYS_ABBR, "_ref") %in% colnames(df_with_params)))
-  expect_false(any(paste0(WEEKDAYS_ABBR, "_issue") %in% colnames(df_with_params)))
-
-  # Verify week-of-month encoding is still added for report_date
+  # no day-of-week columns in weekly mode
+  expect_false(any(c("Mon_ref", "Weekends_ref", "Mon_issue", "Weekends_issue") %in% colnames(df_with_params)))
   expect_true(all(WEEK_ISSUES %in% colnames(df_with_params)))
-
-  # Check that only one week column per row has a value of 1
   expect_true(all(rowSums(df_with_params[, WEEK_ISSUES]) <= 1))
 })
 

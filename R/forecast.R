@@ -50,9 +50,10 @@ revision_forecast <- function(train_data, test_data, taus,
                               indicator="testdata", signal="",
                               geo_level="state", signal_suffix="",
                               training_end_date="",
-                              training_days =365,
+                              training_days=365,
                               train_models = TRUE,
-                              make_predictions=TRUE) {
+                              make_predictions=TRUE,
+                              onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
 
 
 
@@ -78,7 +79,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, extra_params)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, onehot_weekdays, extra_params)
   }
 
   if (smoothed_target) {
@@ -329,7 +330,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      training_end_date="",
                      training_days=365,
                      train_models = TRUE,
-                     make_predictions = TRUE) {
+                     make_predictions = TRUE,
+                     onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
 
   testing_start_date <- as.Date(testing_start_date)
 
@@ -396,7 +398,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                                  indicator, signal, geo_level,
                                  signal_suffix, as.character(testing_start_date),
                                  training_days, train_models,
-                                 make_predictions)
+                                 make_predictions, onehot_weekdays)
 
     test_data_list <- append(test_data_list, list(results))
   }
