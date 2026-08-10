@@ -14,7 +14,11 @@ data_preprocessing(
   lagged_term_list = NULL,
   value_type = "count",
   temporal_resol = "daily",
-  smoothed = FALSE
+  smoothed = FALSE,
+  target_lag_lower_tolerance = 0,
+  target_lag_upper_tolerance = 0,
+  aux_triangles = NULL,
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))
 )
 }
 \arguments{
@@ -37,6 +41,14 @@ data_preprocessing(
 \item{temporal_resol}{Character specifying temporal resolution ('daily' or 'weekly').}
 
 \item{smoothed}{Logical indicating whether smoothing should be applied.}
+
+\item{target_lag_lower_tolerance}{Non-negative days before \code{ref_lag} included in the genuine-revision target window.}
+
+\item{target_lag_upper_tolerance}{Non-negative days after \code{ref_lag} included in the genuine-revision target window.}
+
+\item{aux_triangles}{Optional named list of auxiliary reporting triangles.}
+
+\item{onehot_weekdays}{Optional named weekday groups used for daily features.}
 }
 \description{
 This function processes input data by handling missing values, computing lagged terms,
