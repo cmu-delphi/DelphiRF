@@ -158,6 +158,70 @@ test_that("add_targets correctly adds target columns", {
   expect_equal(unique(df_new[df_new$ref_date == as.Date("2022-01-10"), "value_target"]), NA_real_)
 })
 
+test_that("create_target_lookup selects latest genuine revision in window", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62, 70),
+    value = c(10, 10, 12, 15, 20)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60, 1, 2)
+  expect_equal(target$target_lag, 62)
+  expect_equal(target$target_date, as.Date("2024-03-03"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("create_target_lookup falls back to latest raw value at lower bound", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(40, 55, 59, 70),
+    value = c(8, 10, 10, 20)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60, 1, 2)
+  expect_equal(target$target_lag, 59)
+  expect_equal(target$target_type, "fallback")
+})
+
+test_that("create_target_lookup never selects negative reporting lags", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-10"),
+    lag = c(-7, 5),
+    value = c(5, 8)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 7)
+  expect_equal(target$target_lag, 5)
+  expect_equal(target$target_type, "fallback")
+})
+
+test_that("weekly raw targets retain Friday and keep day-based lags", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-06"),
+    lag = c(60, 62), # Wednesday and Friday in the same epiweek
+    value = c(10, 14)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 63, 0, 0, "weekly"
+  )
+  expect_equal(target$target_lag, 63)
+  expect_equal(target$target_date, as.Date("2024-03-09"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("data_preprocessing attaches raw-aware target after filling", {
+  raw <- data.frame(
+    ref_date = rep(as.Date("2024-01-01"), 4),
+    lag = c(50, 59, 61, 62),
+    value = c(10, 10, 12, 15)
+  )
+  result <- data_preprocessing(
+    raw, "value", "ref_date", "lag", 60,
+    lagged_term_list = c(1, 7), temporal_resol = "daily", smoothed = TRUE,
+    target_lag_lower_tolerance = 1, target_lag_upper_tolerance = 2
+  )
+  expect_true(all(result$target_lag == 62))
+  expect_true(all(result$target_type == "revision"))
+  expect_true(all(result$value_target == 15))
+})
+
 
 test_that("add_log_transformed correctly applies log transformation", {
   # Create a test dataframe
@@ -321,10 +385,13 @@ test_that("data_preprocessing handles multiple value columns correctly", {
   expect_true("log_delta_value_7dav_lag7" %in% colnames(result_df))
   expect_true("log_delta_value_7dav_lag7" %in% colnames(result_df))
 
-  expect_error(data_preprocessing(df, value_col = c("cases", "deaths"), suffixes=c("_num", "_denom"),
-                                  refd_col = "ref_date", lag_col = "lag", ref_lag = 7, value_type = "fraction",
-                                  temporal_resol = "weekly"),
-               "The reference dates do not regularly have a gap of 7 days. Some reference dates will be ignored. Please check your input data.")
+  weekly_result <- data_preprocessing(
+    df, value_col = c("cases", "deaths"), suffixes = c("_num", "_denom"),
+    refd_col = "ref_date", lag_col = "lag", ref_lag = 7,
+    value_type = "fraction", temporal_resol = "weekly"
+  )
+  expect_true(all(weekdays(weekly_result$reference_date) == "Saturday"))
+  expect_true(all(weekly_result$lag %% 7 == 0))
 
   expect_true(max(result_df$lag) < 7)
   expect_true("reference_date" %in% colnames(result_df))

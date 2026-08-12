@@ -238,6 +238,84 @@ add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_reso
   return (as.data.frame(backfill_df))
 }
 
+#' Construct one raw-aware target per reference date
+#'
+#' Selects the latest genuine value-changing revision in
+#' `[ref_lag - lower_tolerance, ref_lag + upper_tolerance]`. If none exists,
+#' it falls back to the latest raw value at or before the lower boundary.
+#' The returned table is sparse (one row per reference date) and is intended
+#' to be joined after feature-grid filling.
+#'
+#' @param df Raw reporting-triangle data frame.
+#' @param value_col Name of the value column used to identify revisions.
+#' @param refd_col Name of the reference-date column.
+#' @param lag_col Name of the day-based reporting-lag column.
+#' @param ref_lag Central target lag, in days.
+#' @param lower_tolerance Non-negative days before `ref_lag` included in the
+#'   genuine-revision search window.
+#' @param upper_tolerance Non-negative days after `ref_lag` included in the
+#'   genuine-revision search window.
+#' @param temporal_resol Either `"daily"` or `"weekly"`.
+#' @return A compact data frame with at most one target per reference date.
+#' @export
+create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
+                                 lower_tolerance = 0, upper_tolerance = 0,
+                                 temporal_resol = "daily") {
+  if (lower_tolerance < 0 || upper_tolerance < 0) {
+    stop("Target lag tolerances must be non-negative.")
+  }
+  if (nrow(df) == 0) {
+    return(data.frame(reference_date = as.Date(character()),
+                      target_date = as.Date(character()),
+                      target_lag = numeric(), target_type = character()))
+  }
+  raw <- df[, unique(c(refd_col, lag_col, value_col)), drop = FALSE]
+  raw[[refd_col]] <- as.Date(raw[[refd_col]])
+  raw$report_date <- raw[[refd_col]] + raw[[lag_col]]
+  if (temporal_resol == "weekly") {
+    raw <- normalize_weekly_observations(raw, refd_col, lag_col)
+  } else if (temporal_resol != "daily") {
+    stop("Invalid temporal_resol. Choose either 'daily' or 'weekly'.")
+  }
+  raw <- raw[raw[[lag_col]] >= 0, , drop = FALSE]
+  raw <- raw[order(raw[[refd_col]], raw[[lag_col]], raw$report_date), , drop = FALSE]
+  lower <- ref_lag - lower_tolerance
+  upper <- ref_lag + upper_tolerance
+
+  chosen <- lapply(split(raw, raw[[refd_col]]), function(g) {
+    values <- g[[value_col]]
+    changed <- c(TRUE, (is.na(values[-1]) != is.na(values[-length(values)])) |
+      (!is.na(values[-1]) & !is.na(values[-length(values)]) &
+         values[-1] != values[-length(values)]))
+    candidates <- which(changed & g[[lag_col]] >= lower & g[[lag_col]] <= upper)
+    if (length(candidates) > 0) {
+      idx <- tail(candidates, 1)
+      type <- "revision"
+    } else {
+      fallback <- which(g[[lag_col]] <= lower)
+      if (length(fallback) == 0) return(NULL)
+      idx <- tail(fallback, 1)
+      type <- "fallback"
+    }
+    data.frame(
+      reference_date = as.Date(g[[refd_col]][idx]),
+      target_date = as.Date(g$report_date[idx]),
+      target_lag = as.numeric(g[[lag_col]][idx]),
+      target_type = type
+    )
+  })
+  dplyr::bind_rows(chosen)
+}
+
+attach_target_lookup <- function(df, target_lookup) {
+  target_values <- df %>%
+    select(reference_date, target_date = report_date,
+           value_target = value_raw, value_target_7dav = value_7dav)
+  df %>%
+    left_join(target_lookup, by = "reference_date") %>%
+    left_join(target_values, by = c("reference_date", "target_date"))
+}
+
 
 #' Add log-transformed columns for specified numerical variables
 #'
@@ -390,6 +468,10 @@ aux_feature_names <- function(name, lagged_term_list) {
 #' @param value_type Character indicating the type of values ('count' or 'fraction').
 #' @param temporal_resol Character specifying temporal resolution ('daily' or 'weekly').
 #' @param smoothed Logical indicating whether smoothing should be applied.
+#' @param target_lag_lower_tolerance Non-negative days before `ref_lag` to
+#'   search for genuine target revisions.
+#' @param target_lag_upper_tolerance Non-negative days after `ref_lag` to
+#'   search for genuine target revisions.
 #' @param aux_triangles Named list of auxiliary reporting-triangle data frames.
 #'   Each element must have columns `reference_date`, `report_date`, `lag`, and
 #'   `value` (already filtered to the same single geo as `df`).  Each is run
@@ -405,6 +487,8 @@ aux_feature_names <- function(name, lagged_term_list) {
 data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                suffixes=c(""), lagged_term_list = NULL, value_type="count",
                                temporal_resol="daily", smoothed=FALSE,
+                               target_lag_lower_tolerance = 0,
+                               target_lag_upper_tolerance = 0,
                                aux_triangles = NULL,
                                onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
   if (value_type == "count") {
@@ -444,6 +528,11 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
     lagged_term_list <- c(lagged_term_list, 7)
   } # Make sure we always have the lagged term from last week
 
+  target_lookup <- create_target_lookup(
+    df, value_col[1], refd_col, lag_col, ref_lag,
+    target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol
+  )
+
   dfList <- lapply(value_col, function(value_col) {
     filled_df <- fill_missing_updates(df, value_col, refd_col, lag_col, temporal_resol)
     if (!(smoothed) & (temporal_resol == "daily")){
@@ -452,14 +541,15 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
       filled_df$value_7dav = filled_df$value_raw
     }
     filled_df <- add_lagged_terms(filled_df, "value_7dav", "reference_date", "lag", lagged_term_list, temporal_resol)
-    filled_df <- add_targets(filled_df, "value_raw", "reference_date", "lag", ref_lag, temporal_resol)
+    filled_df <- attach_target_lookup(filled_df, target_lookup)
     add_log_transformed(filled_df, lagged_term_list)
   })
 
   merged_df <- Reduce(
     function(x, y) full_join(
       x, y,
-      by = c("reference_date", "report_date", "lag", "target_date"),
+      by = c("reference_date", "report_date", "lag", "target_date",
+             "target_lag", "target_type"),
       suffix = suffixes
     ),
     dfList
