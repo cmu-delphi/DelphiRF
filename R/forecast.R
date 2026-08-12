@@ -344,8 +344,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       
       # Detect weekly spacing
       if (length(lag_diffs) == 1 && lag_diffs == 7) {
+        if (temporal_resol != "weekly") message("Auto-detected weekly temporal resolution from lag spacing.")
         temporal_resol <- "weekly"
-        message("Auto-detected weekly temporal resolution from lag spacing.")
       }
     }
   }
