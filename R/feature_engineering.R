@@ -304,7 +304,13 @@ create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
       target_type = type
     )
   })
-  dplyr::bind_rows(chosen)
+  result <- dplyr::bind_rows(chosen)
+  if (nrow(result) == 0) {
+    return(data.frame(reference_date = as.Date(character()),
+                      target_date = as.Date(character()),
+                      target_lag = numeric(), target_type = character()))
+  }
+  result
 }
 
 attach_target_lookup <- function(df, target_lookup) {

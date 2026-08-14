@@ -206,6 +206,25 @@ test_that("weekly raw targets retain Friday and keep day-based lags", {
   expect_equal(target$target_type, "revision")
 })
 
+test_that("create_target_lookup returns a typed empty frame when all lags exceed ref_lag", {
+  # Simulate bulk-loaded historical data: every reference_date has only one
+  # observation with lag >> ref_lag (e.g. loaded months after the fact).
+  # Before the fix, dplyr::bind_rows(NULL, NULL, ...) returned a 0x0 tibble,
+  # causing attach_target_lookup to fail with "reference_date not in y".
+  raw <- data.frame(
+    ref_date = as.Date(c("2020-01-01", "2020-01-02", "2020-01-03")),
+    lag = c(250, 249, 248),  # all >> ref_lag=60; no fallback <= 60 exists
+    value = c(10, 12, 11)
+  )
+  result <- create_target_lookup(raw, "value", "ref_date", "lag", 60)
+  expect_s3_class(result, "data.frame")
+  expect_equal(nrow(result), 0L)
+  expect_true("reference_date" %in% colnames(result))
+  expect_true("target_date"    %in% colnames(result))
+  expect_true("target_lag"     %in% colnames(result))
+  expect_true("target_type"    %in% colnames(result))
+})
+
 test_that("data_preprocessing attaches raw-aware target after filling", {
   raw <- data.frame(
     ref_date = rep(as.Date("2024-01-01"), 4),
