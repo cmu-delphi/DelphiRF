@@ -96,17 +96,11 @@ revision_forecast <- function(train_data, test_data, taus,
 
   test_data_list <- list()
 
-  if (train_models) {
-    sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
-    train_result <- add_sqrtscale(train_data, sqrt_max_raw)
-    train_data <- train_result$data
-    kept_bins <- train_result$kept_bins
-    #for (col in kept_bins) {
-    #  proportion <- sum(train_data[[col]]) / nrow(train_data)
-    #  cat(sprintf("Sum of %s: %.4f\n", col, proportion))
-    #}
-    train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
-  }
+  sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
+  train_result <- add_sqrtscale(train_data, sqrt_max_raw)
+  train_data <- train_result$data
+  kept_bins <- train_result$kept_bins
+  train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
 
   # pre-process the test data with max_raw
   if (make_predictions) {

@@ -307,3 +307,60 @@ test_that("testing data_filteration", {
   expect_equal(result$lag, expected_lags)
 
 })
+
+test_that("revision_forecast with train_models=FALSE loads cached model and produces identical predictions", {
+  tmpdir <- tempfile()
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE))
+
+  set.seed(42)
+  nn_train <- 200
+  nn_test  <- 30
+
+  make_rf_data <- function(nn, start_date) {
+    dates <- seq(as.Date(start_date), by = "day", length.out = nn)
+    data.frame(
+      reference_date   = dates,
+      report_date      = dates + 3L,
+      lag              = 3L,
+      value_7dav       = runif(nn, 0, 1),
+      log_value_7dav   = rnorm(nn),
+      log_value_target = rnorm(nn),
+      value_7dav_diff  = rnorm(nn),
+      value_slope_diff = rnorm(nn),
+      Mon_ref          = sample(c(0L, 1L), nn, replace = TRUE)
+    )
+  }
+
+  train_data <- make_rf_data(nn_train, "2021-01-01")
+  test_data  <- make_rf_data(nn_test,  "2021-07-20")
+
+  rf_args <- list(
+    taus             = 0.5,
+    smoothed_target  = FALSE,
+    params_list      = c("log_value_7dav", "Mon_ref"),
+    temporal_resol   = "daily",
+    lambda           = 0.1,
+    gamma            = 0.1,
+    model_save_dir   = tmpdir,
+    indicator        = "test",
+    signal           = "sig",
+    geo_level        = "state",
+    geo              = "pa",
+    training_days    = nn_train,
+    make_predictions = TRUE
+  )
+
+  result_fit <- do.call(
+    revision_forecast,
+    c(list(train_data = train_data, test_data = test_data, train_models = TRUE), rf_args)
+  )
+  expect_gt(nrow(result_fit), 0)
+
+  result_cached <- do.call(
+    revision_forecast,
+    c(list(train_data = train_data, test_data = test_data, train_models = FALSE), rf_args)
+  )
+  expect_gt(nrow(result_cached), 0)
+  expect_equal(result_fit$predicted_tau0.5, result_cached$predicted_tau0.5)
+})
