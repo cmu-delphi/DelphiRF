@@ -18,7 +18,8 @@ data_preprocessing(
   target_lag_lower_tolerance = 0,
   target_lag_upper_tolerance = 0,
   aux_triangles = NULL,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+  target_as_of_date = NULL
 )
 }
 \arguments{
@@ -49,6 +50,9 @@ data_preprocessing(
 \item{aux_triangles}{Optional named list of auxiliary reporting triangles.}
 
 \item{onehot_weekdays}{Optional named weekday groups used for daily features.}
+
+\item{target_as_of_date}{Optional date limiting target construction to
+reports available on or before that date.}
 }
 \description{
 This function processes input data by handling missing values, computing lagged terms,

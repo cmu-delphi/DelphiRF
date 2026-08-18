@@ -354,6 +354,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
   }
 
   geo_train_data <- df %>%
+    dplyr::filter(.data$report_date <= testing_start_date) %>%
     dplyr::filter(.data$target_date <= testing_start_date) %>%
     dplyr::filter(.data$target_date > testing_start_date - training_days)
   # Add weighting-related features to training data
@@ -399,7 +400,6 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
   return(as.data.frame(bind_rows(test_data_list)))
 
 }
-
 
 
 

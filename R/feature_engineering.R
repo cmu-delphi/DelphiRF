@@ -256,11 +256,15 @@ add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_reso
 #' @param upper_tolerance Non-negative days after `ref_lag` included in the
 #'   genuine-revision search window.
 #' @param temporal_resol Either `"daily"` or `"weekly"`.
+#' @param target_as_of_date Optional date limiting target selection to reports
+#'   available on or before that date. The effective upper target-window date
+#'   is the earlier of this date and `reference_date + ref_lag + upper_tolerance`.
 #' @return A compact data frame with at most one target per reference date.
 #' @export
 create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
                                  lower_tolerance = 0, upper_tolerance = 0,
-                                 temporal_resol = "daily") {
+                                 temporal_resol = "daily",
+                                 target_as_of_date = NULL) {
   if (lower_tolerance < 0 || upper_tolerance < 0) {
     stop("Target lag tolerances must be non-negative.")
   }
@@ -283,6 +287,10 @@ create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
   upper <- ref_lag + upper_tolerance
 
   chosen <- lapply(split(raw, raw[[refd_col]]), function(g) {
+    if (!is.null(target_as_of_date)) {
+      g <- g[g$report_date <= as.Date(target_as_of_date), , drop = FALSE]
+      if (nrow(g) == 0) return(NULL)
+    }
     values <- g[[value_col]]
     changed <- c(TRUE, (is.na(values[-1]) != is.na(values[-length(values)])) |
       (!is.na(values[-1]) & !is.na(values[-length(values)]) &
@@ -478,6 +486,8 @@ aux_feature_names <- function(name, lagged_term_list) {
 #'   search for genuine target revisions.
 #' @param target_lag_upper_tolerance Non-negative days after `ref_lag` to
 #'   search for genuine target revisions.
+#' @param target_as_of_date Optional date limiting target construction to
+#'   reports available on or before that date.
 #' @param aux_triangles Named list of auxiliary reporting-triangle data frames.
 #'   Each element must have columns `reference_date`, `report_date`, `lag`, and
 #'   `value` (already filtered to the same single geo as `df`).  Each is run
@@ -496,7 +506,8 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                target_lag_lower_tolerance = 0,
                                target_lag_upper_tolerance = 0,
                                aux_triangles = NULL,
-                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
+                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                               target_as_of_date = NULL) {
   if (value_type == "count") {
     if (length(value_col) > 1) warning("Multiple value column names provided; only the first one will be used.")
     if (length(unique(suffixes)) > 1) warning("Multiple suffixes provided; only the first one will be used.")
@@ -536,7 +547,8 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
 
   target_lookup <- create_target_lookup(
     df, value_col[1], refd_col, lag_col, ref_lag,
-    target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol
+    target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol,
+    target_as_of_date
   )
 
   dfList <- lapply(value_col, function(value_col) {

@@ -181,6 +181,71 @@ test_that("create_target_lookup falls back to latest raw value at lower bound", 
   expect_equal(target$target_type, "fallback")
 })
 
+test_that("create_target_lookup clamps its upper date to target_as_of_date", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62, 70),
+    value = c(10, 10, 12, 15, 20)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 60, 1, 10, "daily",
+    target_as_of_date = as.Date("2024-03-02")
+  )
+  expect_equal(target$target_lag, 61)
+  expect_equal(target$target_date, as.Date("2024-03-02"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("target cutoff cannot use a future fallback observation", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(40, 50, 59, 70),
+    value = c(8, 10, 10, 20)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 60, 1, 10, "daily",
+    target_as_of_date = as.Date("2024-02-20")
+  )
+  expect_equal(target$target_lag, 50)
+  expect_equal(target$target_type, "fallback")
+})
+
+test_that("target cutoff omits reference dates with no available observations", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-10"),
+    lag = c(0, 1, 2),
+    value = c(10, 12, 15)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 1, 0, 2, "daily",
+    target_as_of_date = as.Date("2024-01-09")
+  )
+  expect_equal(nrow(target), 0)
+})
+
+test_that("data_preprocessing never attaches a target after its as-of date", {
+  raw <- data.frame(
+    ref_date = rep(as.Date(c("2024-01-01", "2024-01-02")), each = 6),
+    lag = rep(0:5, 2),
+    value = c(10, 10, 11, 12, 13, 14, 20, 20, 21, 22, 23, 24)
+  )
+  cutoff <- as.Date("2024-01-04")
+  result <- data_preprocessing(
+    raw, "value", "ref_date", "lag", 3,
+    lagged_term_list = c(1), smoothed = FALSE,
+    target_lag_upper_tolerance = 3,
+    target_as_of_date = cutoff
+  )
+  targets <- result %>%
+    distinct(reference_date, target_date, target_lag, target_type) %>%
+    filter(!is.na(target_date))
+
+  expect_equal(nrow(targets), 2)
+  expect_true(all(targets$target_date <= cutoff))
+  expect_equal(targets$target_lag, c(3, 2))
+  expect_equal(targets$target_type, c("revision", "fallback"))
+})
+
 test_that("create_target_lookup never selects negative reporting lags", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-10"),

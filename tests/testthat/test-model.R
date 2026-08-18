@@ -363,3 +363,36 @@ test_that("revision_forecast with train_models=FALSE loads cached model and prod
   expect_gt(nrow(result_cached), 0)
   expect_equal(result_fit$predicted_tau0.5, result_cached$predicted_tau0.5)
 })
+
+test_that("DelphiRF excludes report rows after the testing date from training", {
+  cutoff <- as.Date("2024-01-10")
+  df <- data.frame(
+    reference_date = as.Date(c("2024-01-01", "2024-01-02", "2024-01-03")),
+    report_date = as.Date(c("2024-01-09", "2024-01-10", "2024-01-11")),
+    target_date = rep(cutoff, 3),
+    lag = rep(8, 3),
+    value_7dav = c(1, 2, 3),
+    value_7dav_lag7 = c(1, 1, 2),
+    log_value_7dav = log1p(c(1, 2, 3)),
+    log_value_7dav_lag7 = log1p(c(1, 1, 2))
+  )
+
+  local_mocked_bindings(
+    revision_forecast = function(train_data, test_data, ...) {
+      test_data$latest_training_report_date <- max(train_data$report_date)
+      test_data
+    },
+    .package = "DelphiRF"
+  )
+
+  result <- DelphiRF(
+    df,
+    testing_start_date = cutoff,
+    test_lag_groups = 8,
+    lag_pad = 0,
+    training_days = 30
+  )
+
+  expect_true(all(result$latest_training_report_date <= cutoff))
+  expect_equal(unique(result$latest_training_report_date), cutoff)
+})
