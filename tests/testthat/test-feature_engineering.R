@@ -196,6 +196,24 @@ test_that("create_target_lookup clamps its upper date to target_as_of_date", {
   expect_equal(target$target_type, "revision")
 })
 
+test_that("omitting target_as_of_date preserves the original target behavior", {
+  raw <- data.frame(
+    ref_date = rep(as.Date("2024-01-01"), 4),
+    lag = c(0, 5, 7, 9),
+    value = c(10, 11, 12, 13)
+  )
+
+  legacy_call <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 7, 1, 2, "daily"
+  )
+  explicit_default <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 7, 1, 2, "daily",
+    target_as_of_date = NULL
+  )
+
+  expect_identical(legacy_call, explicit_default)
+})
+
 test_that("target cutoff cannot use a future fallback observation", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-01"),

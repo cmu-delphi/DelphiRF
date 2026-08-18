@@ -548,7 +548,7 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   target_lookup <- create_target_lookup(
     df, value_col[1], refd_col, lag_col, ref_lag,
     target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol,
-    target_as_of_date
+    target_as_of_date = target_as_of_date
   )
 
   dfList <- lapply(value_col, function(value_col) {
