@@ -219,17 +219,10 @@ exponentiate_preds <- function(test_data, taus) {
 get_model <- function(model_path, train_data, covariates, response, tau,
                       sqrt_max_raw, kept_bins,
                       lambda, gamma, lp_solver, train_models) {
-  if (!train_models && !file.exists(model_path)) {
-    candidates <- list.files(dirname(model_path), pattern = "\\.rds$", full.names = TRUE)
-    if (length(candidates) > 0L) {
-      alt_path <- sort(candidates, decreasing = TRUE)[1L]
-      message(sprintf("Exact model not found; loading most recent cached model: %s", basename(alt_path)))
-      return(readRDS(alt_path))
-    }
-    warning(str_interp("user requested use of cached model but file ${model_path} does not exist and no alternatives found; training new model"))
-    train_models <- TRUE
-  }
   if (train_models || !file.exists(model_path)) {
+    if (!train_models && !file.exists(model_path)) {
+      warning(str_interp("user requested use of cached model but file ${model_path} does not exist; training new model"))
+    }
     # Quantile regression
     vec_7dav <- train_data[["value_7dav_diff"]]
     vec_slope <- train_data[["value_slope_diff"]]
