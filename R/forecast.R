@@ -53,7 +53,8 @@ revision_forecast <- function(train_data, test_data, taus,
                               training_days=365,
                               train_models = TRUE,
                               make_predictions=TRUE,
-                              onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
+                              onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                              time_limit = NULL) {
 
 
 
@@ -102,6 +103,19 @@ revision_forecast <- function(train_data, test_data, taus,
   kept_bins <- train_result$kept_bins
   train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
 
+  # Degenerate LP guard: all-constant response means fill_missing_updates synthesised
+  # the entire lag group from forward-filled zeros. GLPK cycles indefinitely on such
+  # problems and will never converge.
+  .response_sd <- stats::sd(train_data[[response]], na.rm = TRUE)
+  if (is.nan(.response_sd) || .response_sd < 1e-8) {
+    warning(sprintf(
+      "Near-zero response variance [geo=%s lag_group=%s]; skipping — likely all synthetic data",
+      geo, test_lag_group
+    ))
+    return(data.frame())
+  }
+  rm(.response_sd)
+
   # pre-process the test data with max_raw
   if (make_predictions) {
     # Get model path
@@ -116,7 +130,7 @@ revision_forecast <- function(train_data, test_data, taus,
     # Get the trained_model
     obj <- get_model(model_path, train_data, params_list, response, taus,
                      sqrt_max_raw, kept_bins,
-                     lambda[1], gamma[1], lp_solver, train_models)
+                     lambda[1], gamma[1], lp_solver, train_models, time_limit)
 
     sqrt_max_raw <- attr(obj, "sqrt_max_raw")
     kept_bins <- attr(obj, "kept_bins")
@@ -146,7 +160,7 @@ revision_forecast <- function(train_data, test_data, taus,
 
       # Get the trained_model
       obj <- get_model(model_path, train_data, params_list, response, taus, sqrt_max_raw,
-                       l, g, lp_solver, train_models)
+                       l, g, lp_solver, train_models, time_limit)
 
       if (make_predictions) {
         test_data <- get_prediction(test_data, taus, params_list, response, obj,
@@ -325,7 +339,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      training_days=365,
                      train_models = TRUE,
                      make_predictions = TRUE,
-                     onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
+                     onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                     time_limit = NULL) {
 
   testing_start_date <- as.Date(testing_start_date)
 
@@ -392,7 +407,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                                  indicator, signal, geo_level,
                                  signal_suffix, as.character(testing_start_date),
                                  training_days, train_models,
-                                 make_predictions, onehot_weekdays)
+                                 make_predictions, onehot_weekdays,
+                                 time_limit = time_limit)
 
     test_data_list <- append(test_data_list, list(results))
   }

@@ -218,7 +218,7 @@ exponentiate_preds <- function(test_data, taus) {
 #' @importFrom quantgen quantile_lasso
 get_model <- function(model_path, train_data, covariates, response, tau,
                       sqrt_max_raw, kept_bins,
-                      lambda, gamma, lp_solver, train_models) {
+                      lambda, gamma, lp_solver, train_models, time_limit = NULL) {
   if (train_models || !file.exists(model_path)) {
     if (!train_models && !file.exists(model_path)) {
       warning(str_interp("user requested use of cached model but file ${model_path} does not exist; training new model"))
@@ -233,11 +233,15 @@ get_model <- function(model_path, train_data, covariates, response, tau,
     } else {
       weights <- NULL
     }
-    obj <- quantile_lasso(as.matrix(train_data[covariates]),
-                         train_data[[response]], # - train_data[["log_value_7dav"]],
-                         tau = tau,
-                         lambda = lambda, standardize = TRUE, lp_solver = lp_solver, intercept=TRUE,
-                         weights = weights)
+    lasso_args <- list(
+      as.matrix(train_data[covariates]),
+      train_data[[response]],
+      tau = tau,
+      lambda = lambda, standardize = TRUE, lp_solver = lp_solver, intercept = TRUE,
+      weights = weights
+    )
+    if (!is.null(time_limit)) lasso_args$time_limit <- time_limit
+    obj <- do.call(quantile_lasso, lasso_args)
 
     # Save model to cache.
     create_dir_not_exist(dirname(model_path))
@@ -251,7 +255,7 @@ get_model <- function(model_path, train_data, covariates, response, tau,
   } else {
     # Load model from cache invisibly. Object has the same name as the original
     # model object, `obj`.
-    print(str_interp("Loading from ${model_path}"))
+    message(str_interp("Loading from ${model_path}"))
     obj <- readRDS(model_path)
   }
 
