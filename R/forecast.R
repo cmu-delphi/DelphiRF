@@ -103,16 +103,34 @@ revision_forecast <- function(train_data, test_data, taus,
   kept_bins <- train_result$kept_bins
   train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
 
-  # Degenerate LP guard: all-constant response means fill_missing_updates synthesised
-  # the entire lag group from forward-filled zeros. GLPK cycles indefinitely on such
-  # problems and will never converge.
   .response_sd <- stats::sd(train_data[[response]], na.rm = TRUE)
-  if (is.nan(.response_sd) || .response_sd < 1e-8) {
+  if (is.na(.response_sd)) {
+    # drop_na() removed every row — no usable training data at all.
     warning(sprintf(
-      "Near-zero response variance [geo=%s lag_group=%s]; skipping — likely all synthetic data",
+      "No training rows after preprocessing [geo=%s lag_group=%s]; skipping",
       geo, test_lag_group
     ))
     return(data.frame())
+  }
+  if (.response_sd < 1e-8) {
+    # Constant response (sd ~ 0): fill_missing_updates synthesised the entire lag
+    # group from forward-filled zeros. GLPK cycles indefinitely on degenerate LPs,
+    # so skip the solver and return the constant as the prediction directly.
+    warning(sprintf(
+      "Constant training response [geo=%s lag_group=%s]; predicting constant — likely all synthetic data",
+      geo, test_lag_group
+    ))
+    if (!make_predictions) return(data.frame())
+    .constant_val <- mean(train_data[[response]], na.rm = TRUE)
+    test_out <- test_data[, intersect(c(basic_cols, response), colnames(test_data)), drop = FALSE]
+    test_out <- tidyr::drop_na(test_out, dplyr::all_of(basic_cols))
+    test_out[paste0("predicted_tau", taus)] <- .constant_val
+    if (response %in% colnames(test_out)) {
+      test_out <- evaluate(test_out, taus, response = response)
+    }
+    test_out$gamma <- gamma[1]
+    test_out$lambda <- lambda[1]
+    return(as.data.frame(test_out))
   }
   rm(.response_sd)
 
