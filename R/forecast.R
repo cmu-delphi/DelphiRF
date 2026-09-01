@@ -54,7 +54,8 @@ revision_forecast <- function(train_data, test_data, taus,
                               train_models = TRUE,
                               make_predictions=TRUE,
                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
-                              time_limit = NULL) {
+                              time_limit = NULL,
+                              backend = SOLVER_BACKEND) {
 
 
 
@@ -148,7 +149,7 @@ revision_forecast <- function(train_data, test_data, taus,
     # Get the trained_model
     obj <- get_model(model_path, train_data, params_list, response, taus,
                      sqrt_max_raw, kept_bins,
-                     lambda[1], gamma[1], lp_solver, train_models, time_limit)
+                     lambda[1], gamma[1], lp_solver, train_models, time_limit, backend)
 
     sqrt_max_raw <- attr(obj, "sqrt_max_raw")
     kept_bins <- attr(obj, "kept_bins")
@@ -178,7 +179,7 @@ revision_forecast <- function(train_data, test_data, taus,
 
       # Get the trained_model
       obj <- get_model(model_path, train_data, params_list, response, taus, sqrt_max_raw,
-                       l, g, lp_solver, train_models, time_limit)
+                       l, g, lp_solver, train_models, time_limit, backend)
 
       if (make_predictions) {
         test_data <- get_prediction(test_data, taus, params_list, response, obj,
@@ -237,6 +238,7 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                  gamma_candidates = c(0.1, 1, 10),
                                  lag_pad_candidates = c(0, 1, 2, 3),
                                  lp_solver=LP_SOLVER,
+                                 backend=SOLVER_BACKEND,
                                  geo="ma", value_type="count",
                                  model_save_dir="./receiving",
                                  indicator="testdata", signal="",
@@ -286,7 +288,8 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                      signal_suffix, training_end_date,
                                      training_days,
                                      train_models=TRUE,
-                                     make_predictions=TRUE)
+                                     make_predictions=TRUE,
+                                     backend=backend)
 
           scores <- c(scores, mean(results$wis, na.rm=TRUE))
         }
@@ -349,6 +352,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      lambda=LAMBDA, gamma=GAMMA, lag_pad=LAG_PAD,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
+                     backend=SOLVER_BACKEND,
                      geo="ma", value_type="count",
                      model_save_dir="./receiving",
                      indicator="testdata", signal="",
@@ -426,7 +430,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                                  signal_suffix, as.character(testing_start_date),
                                  training_days, train_models,
                                  make_predictions, onehot_weekdays,
-                                 time_limit = time_limit)
+                                 time_limit = time_limit,
+                                 backend = backend)
 
     test_data_list <- append(test_data_list, list(results))
   }

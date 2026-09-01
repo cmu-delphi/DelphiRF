@@ -16,7 +16,8 @@ fill_missing_updates(
   value_col,
   refd_col,
   lag_col,
-  temporal_resol = "daily"
+  temporal_resol = "daily",
+  max_report_override = NULL
 )
 }
 \arguments{

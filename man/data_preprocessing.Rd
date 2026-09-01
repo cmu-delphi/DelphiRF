@@ -42,13 +42,19 @@ data_preprocessing(
 
 \item{smoothed}{Logical indicating whether smoothing should be applied.}
 
-\item{target_lag_lower_tolerance}{Non-negative days before \code{ref_lag} included in the genuine-revision target window.}
+\item{target_lag_lower_tolerance}{Non-negative days before \code{ref_lag} to
+search for genuine target revisions.}
 
-\item{target_lag_upper_tolerance}{Non-negative days after \code{ref_lag} included in the genuine-revision target window.}
+\item{target_lag_upper_tolerance}{Non-negative days after \code{ref_lag} to
+search for genuine target revisions.}
 
-\item{aux_triangles}{Optional named list of auxiliary reporting triangles.}
-
-\item{onehot_weekdays}{Optional named weekday groups used for daily features.}
+\item{aux_triangles}{Named list of auxiliary reporting-triangle data frames.
+Each element must have columns \code{reference_date}, \code{report_date}, \code{lag}, and
+\code{value} (already filtered to the same single geo as \code{df}).  Each is run
+through the same fill → lag → log pipeline as the primary signal and
+joined to the result; columns are prefixed with the list element name.
+Use \code{\link[=aux_feature_names]{aux_feature_names()}} to obtain the resulting predictor column names
+for \code{\link[=create_params_list]{create_params_list()}}.}
 }
 \description{
 This function processes input data by handling missing values, computing lagged terms,

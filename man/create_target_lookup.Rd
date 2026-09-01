@@ -26,9 +26,11 @@ create_target_lookup(
 
 \item{ref_lag}{Central target lag, in days.}
 
-\item{lower_tolerance}{Non-negative days before \code{ref_lag} included in the genuine-revision search window.}
+\item{lower_tolerance}{Non-negative days before \code{ref_lag} included in the
+genuine-revision search window.}
 
-\item{upper_tolerance}{Non-negative days after \code{ref_lag} included in the genuine-revision search window.}
+\item{upper_tolerance}{Non-negative days after \code{ref_lag} included in the
+genuine-revision search window.}
 
 \item{temporal_resol}{Either \code{"daily"} or \code{"weekly"}.}
 }

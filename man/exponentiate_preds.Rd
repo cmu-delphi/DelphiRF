@@ -14,5 +14,7 @@ each requested quantile. Each row represents an update with certain
 \item{taus-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
-Un-log predicted values
+Inverts the log(x+1) forward transform applied during preprocessing.
+DelphiRF returns predictions in log(x+1)-scale; callers are responsible
+for applying this back-transform. This function is not called internally.
 }

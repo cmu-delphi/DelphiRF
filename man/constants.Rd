@@ -9,6 +9,7 @@
 \alias{LAMBDA}
 \alias{GAMMA}
 \alias{LP_SOLVER}
+\alias{SOLVER_BACKEND}
 \alias{YITL}
 \alias{SLOPE}
 \alias{Y7DAV}
@@ -34,6 +35,8 @@ An object of class \code{numeric} of length 1.
 An object of class \code{numeric} of length 1.
 
 An object of class \code{numeric} of length 1.
+
+An object of class \code{character} of length 1.
 
 An object of class \code{character} of length 1.
 
@@ -75,6 +78,8 @@ LAMBDA
 GAMMA
 
 LP_SOLVER
+
+SOLVER_BACKEND
 
 YITL
 

@@ -178,6 +178,10 @@ evaluate <- function(test_data, taus, response) {
 
 #' Un-log predicted values
 #'
+#' Inverts the log(x+1) forward transform applied during preprocessing.
+#' DelphiRF returns predictions in log(x+1)-scale; callers are responsible
+#' for applying this back-transform. This function is not called internally.
+#'
 #' @param test_data dataframe with a column containing the prediction results of
 #'    each requested quantile. Each row represents an update with certain
 #'    (reference_date, report_date, location) combination.
@@ -187,10 +191,9 @@ evaluate <- function(test_data, taus, response) {
 exponentiate_preds <- function(test_data, taus) {
   pred_cols <- paste0("predicted_tau", taus)
 
-  # Drop original predictions and join on exponentiated versions
   test_data <- bind_cols(
     select(test_data, -starts_with("predicted")),
-    exp(test_data[, pred_cols])
+    exp(test_data[, pred_cols]) - 1
   )
 
   return(test_data)
@@ -215,10 +218,72 @@ exponentiate_preds <- function(test_data, taus) {
 #' @return The trained or loaded model object.
 #'
 #' @importFrom stringr str_interp
-#' @importFrom quantgen quantile_lasso
+#' @importFrom quantreg rq.fit.lasso
+#' @importFrom stats sd
+fit_quantile_lasso <- function(x, y, tau, lambda, standardize = TRUE,
+                               intercept = TRUE, weights = NULL,
+                               lp_solver = "glpk") {
+  if (!is.null(weights)) {
+    if (!requireNamespace("quantgen", quietly = TRUE)) {
+      stop("observation weights require quantgen (rq.fit.lasso does not support them); install with remotes::install_github('ryantibs/quantgen/quantgen')")
+    }
+    lasso_args <- list(x, y, tau = tau, lambda = lambda,
+                       standardize = standardize, intercept = intercept,
+                       lp_solver = lp_solver, weights = weights)
+    return(do.call(quantgen::quantile_lasso, lasso_args))
+  }
+
+  col_means <- colMeans(x)
+  col_sds <- apply(x, 2, sd)
+  col_sds[col_sds == 0] <- 1
+
+  if (standardize) {
+    x <- scale(x, center = col_means, scale = col_sds)
+  } else {
+    col_means <- rep(0, ncol(x))
+    col_sds <- rep(1, ncol(x))
+  }
+
+  if (intercept) {
+    x_fit <- cbind(1, x)
+    lambda_vec <- c(0, rep(lambda, ncol(x)))
+  } else {
+    x_fit <- x
+    lambda_vec <- rep(lambda, ncol(x))
+  }
+
+  fit <- rq.fit.lasso(x_fit, y, tau = tau, lambda = lambda_vec)
+
+  structure(
+    list(
+      coefficients = fit$coefficients,
+      col_means = col_means,
+      col_sds = col_sds,
+      intercept = intercept,
+      standardize = standardize,
+      tau = tau,
+      lambda = lambda
+    ),
+    class = "rq_lasso_fit"
+  )
+}
+
+#' @export
+#' @method predict rq_lasso_fit
+predict.rq_lasso_fit <- function(object, newx, ...) {
+  if (object$standardize) {
+    newx <- scale(newx, center = object$col_means, scale = object$col_sds)
+  }
+  if (object$intercept) {
+    newx <- cbind(1, newx)
+  }
+  as.vector(newx %*% object$coefficients)
+}
+
 get_model <- function(model_path, train_data, covariates, response, tau,
                       sqrt_max_raw, kept_bins,
-                      lambda, gamma, lp_solver, train_models, time_limit = NULL) {
+                      lambda, gamma, lp_solver, train_models, time_limit = NULL,
+                      backend = "quantreg") {
   if (train_models || !file.exists(model_path)) {
     if (!train_models && !file.exists(model_path)) {
       warning(str_interp("user requested use of cached model but file ${model_path} does not exist; training new model"))
@@ -233,24 +298,43 @@ get_model <- function(model_path, train_data, covariates, response, tau,
     } else {
       weights <- NULL
     }
-    lasso_args <- list(
-      as.matrix(train_data[covariates]),
-      train_data[[response]],
-      tau = tau,
-      lambda = lambda, standardize = TRUE, lp_solver = lp_solver, intercept = TRUE,
-      weights = weights
-    )
-    if (!is.null(time_limit)) lasso_args$time_limit <- time_limit
-    obj <- do.call(quantile_lasso, lasso_args)
+
+    if (backend == "quantreg") {
+      obj <- fit_quantile_lasso(
+        as.matrix(train_data[covariates]),
+        train_data[[response]],
+        tau = tau,
+        lambda = lambda,
+        standardize = TRUE,
+        intercept = TRUE,
+        weights = weights,
+        lp_solver = lp_solver
+      )
+    } else if (backend == "quantgen") {
+      if (!requireNamespace("quantgen", quietly = TRUE)) {
+        stop("quantgen package required for backend='quantgen'; install with remotes::install_github('ryantibs/quantgen/quantgen')")
+      }
+      lasso_args <- list(
+        as.matrix(train_data[covariates]),
+        train_data[[response]],
+        tau = tau,
+        lambda = lambda, standardize = TRUE, lp_solver = lp_solver, intercept = TRUE,
+        weights = weights
+      )
+      if (!is.null(time_limit)) lasso_args$time_limit <- time_limit
+      obj <- do.call(quantgen::quantile_lasso, lasso_args)
+    } else {
+      stop(str_interp("unknown backend '${backend}'; must be 'quantreg' or 'quantgen'"))
+    }
 
     # Save model to cache.
     create_dir_not_exist(dirname(model_path))
-    # add extra infomation
     attr(obj, "sqrt_max_raw") <- sqrt_max_raw
     attr(obj, "kept_bins") <- kept_bins
     attr(obj, "gamma") <- gamma
     attr(obj, "lambda") <- lambda
     attr(obj, "lp_solver") <- lp_solver
+    attr(obj, "backend") <- backend
     saveRDS(obj, file=model_path)
   } else {
     # Load model from cache invisibly. Object has the same name as the original

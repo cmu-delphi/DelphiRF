@@ -1,6 +1,5 @@
 # Load testthat for unit testing
 library(testthat)
-library(quantgen)
 library(dplyr)
 library(stringr)
 
