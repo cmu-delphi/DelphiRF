@@ -252,11 +252,14 @@ fit_quantile_lasso <- function(x, y, tau, lambda, standardize = TRUE,
     lambda_vec <- rep(lambda, ncol(x))
   }
 
-  fit <- rq.fit.lasso(x_fit, y, tau = tau, lambda = lambda_vec)
+  # rq.fit.lasso only accepts scalar tau; loop over a vector
+  coef_list <- lapply(tau, function(tt) {
+    rq.fit.lasso(x_fit, y, tau = tt, lambda = lambda_vec)$coefficients
+  })
 
   structure(
     list(
-      coefficients = fit$coefficients,
+      coef_list = coef_list,
       col_means = col_means,
       col_sds = col_sds,
       intercept = intercept,
@@ -277,7 +280,9 @@ predict.rq_lasso_fit <- function(object, newx, ...) {
   if (object$intercept) {
     newx <- cbind(1, newx)
   }
-  as.vector(newx %*% object$coefficients)
+  # Return n x length(tau) matrix, matching quantgen::quantile_lasso predict output
+  coef_mat <- do.call(cbind, object$coef_list)
+  newx %*% coef_mat
 }
 
 get_model <- function(model_path, train_data, covariates, response, tau,
