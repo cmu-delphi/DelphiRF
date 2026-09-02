@@ -32,6 +32,37 @@ add_dayofweek <- function(df, time_col, suffix, wd = WEEKDAYS_ABBR) {
 }
 
 
+#' Add grouped day-of-week one-hot columns
+#'
+#' Creates one binary column per group in `onehot_weekdays`. Each group is a
+#' character vector of day abbreviations (from `WEEKDAYS_ABBR`); a row is 1 if
+#' the date falls on any day in the group.  Column names are derived from the
+#' list names when present, otherwise by concatenating the day abbreviations.
+#'
+#' @param df A data frame containing the date column.
+#' @param time_col Name of the date column.
+#' @param suffix Column name suffix (e.g. `"_ref"` or `"_issue"`).
+#' @param onehot_weekdays Named or unnamed list of character vectors, each
+#'   specifying a group of days (e.g. `list(Mon=c("Mon"), Weekends=c("Sat","Sun"))`).
+#'
+#' @return `df` with one additional integer column per group.
+#' @export
+add_grouped_dayofweek <- function(df, time_col, suffix, onehot_weekdays) {
+  df <- df %>% mutate({{ time_col }} := as.Date(.data[[time_col]]))
+  dayofweek <- as.numeric(format(df[[time_col]], format = "%u"))
+  group_names <- if (!is.null(names(onehot_weekdays))) {
+    names(onehot_weekdays)
+  } else {
+    vapply(onehot_weekdays, function(grp) paste0(grp, collapse = ""), character(1))
+  }
+  for (ii in seq_along(onehot_weekdays)) {
+    day_indices <- match(onehot_weekdays[[ii]], WEEKDAYS_ABBR)
+    df[[paste0(group_names[ii], suffix)]] <- as.integer(dayofweek %in% day_indices)
+  }
+  df
+}
+
+
 #' Add one-hot encoding for week of the month based on issue date
 #'
 #' This function calculates the week of the month for each date in the specified
@@ -188,8 +219,13 @@ add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=
 #' @importFrom dplyr rename
 #' @export
 add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_resol) {
-  # Add target
-  target_df <- df[df[[lag_col]]==ref_lag, c(refd_col, "report_date", value_col, "value_7dav")]
+  available_lags <- sort(unique(df[[lag_col]]))
+  effective_ref_lag <- min(available_lags[available_lags >= ref_lag])
+  if (is.infinite(effective_ref_lag))
+    stop(sprintf("ref_lag %d exceeds all available lags (max %d)", ref_lag, max(available_lags)))
+  if (effective_ref_lag != ref_lag)
+    message(sprintf("ref_lag %d not available; using next lag %d", ref_lag, effective_ref_lag))
+  target_df <- df[df[[lag_col]] == effective_ref_lag, c(refd_col, "report_date", value_col, "value_7dav")]
   # Rename columns for clarity
   target_df <- target_df %>%
     dplyr::rename(
@@ -200,6 +236,90 @@ add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_reso
 
   backfill_df <- merge(df, target_df, by=refd_col, all.x=TRUE)
   return (as.data.frame(backfill_df))
+}
+
+#' Construct one raw-aware target per reference date
+#'
+#' Selects the latest genuine value-changing revision in
+#' `[ref_lag - lower_tolerance, ref_lag + upper_tolerance]`. If none exists,
+#' it falls back to the latest raw value at or before the lower boundary.
+#' The returned table is sparse (one row per reference date) and is intended
+#' to be joined after feature-grid filling.
+#'
+#' @param df Raw reporting-triangle data frame.
+#' @param value_col Name of the value column used to identify revisions.
+#' @param refd_col Name of the reference-date column.
+#' @param lag_col Name of the day-based reporting-lag column.
+#' @param ref_lag Central target lag, in days.
+#' @param lower_tolerance Non-negative days before `ref_lag` included in the
+#'   genuine-revision search window.
+#' @param upper_tolerance Non-negative days after `ref_lag` included in the
+#'   genuine-revision search window.
+#' @param temporal_resol Either `"daily"` or `"weekly"`.
+#' @return A compact data frame with at most one target per reference date.
+#' @export
+create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
+                                 lower_tolerance = 0, upper_tolerance = 0,
+                                 temporal_resol = "daily") {
+  if (lower_tolerance < 0 || upper_tolerance < 0) {
+    stop("Target lag tolerances must be non-negative.")
+  }
+  if (nrow(df) == 0) {
+    return(data.frame(reference_date = as.Date(character()),
+                      target_date = as.Date(character()),
+                      target_lag = numeric(), target_type = character()))
+  }
+  raw <- df[, unique(c(refd_col, lag_col, value_col)), drop = FALSE]
+  raw[[refd_col]] <- as.Date(raw[[refd_col]])
+  raw$report_date <- raw[[refd_col]] + raw[[lag_col]]
+  if (temporal_resol == "weekly") {
+    raw <- normalize_weekly_observations(raw, refd_col, lag_col)
+  } else if (temporal_resol != "daily") {
+    stop("Invalid temporal_resol. Choose either 'daily' or 'weekly'.")
+  }
+  raw <- raw[raw[[lag_col]] >= 0, , drop = FALSE]
+  raw <- raw[order(raw[[refd_col]], raw[[lag_col]], raw$report_date), , drop = FALSE]
+  lower <- ref_lag - lower_tolerance
+  upper <- ref_lag + upper_tolerance
+
+  chosen <- lapply(split(raw, raw[[refd_col]]), function(g) {
+    values <- g[[value_col]]
+    changed <- c(TRUE, (is.na(values[-1]) != is.na(values[-length(values)])) |
+      (!is.na(values[-1]) & !is.na(values[-length(values)]) &
+         values[-1] != values[-length(values)]))
+    candidates <- which(changed & g[[lag_col]] >= lower & g[[lag_col]] <= upper)
+    if (length(candidates) > 0) {
+      idx <- tail(candidates, 1)
+      type <- "revision"
+    } else {
+      fallback <- which(g[[lag_col]] <= lower)
+      if (length(fallback) == 0) return(NULL)
+      idx <- tail(fallback, 1)
+      type <- "fallback"
+    }
+    data.frame(
+      reference_date = as.Date(g[[refd_col]][idx]),
+      target_date = as.Date(g$report_date[idx]),
+      target_lag = as.numeric(g[[lag_col]][idx]),
+      target_type = type
+    )
+  })
+  result <- dplyr::bind_rows(chosen)
+  if (nrow(result) == 0) {
+    return(data.frame(reference_date = as.Date(character()),
+                      target_date = as.Date(character()),
+                      target_lag = numeric(), target_type = character()))
+  }
+  result
+}
+
+attach_target_lookup <- function(df, target_lookup) {
+  target_values <- df %>%
+    select(reference_date, target_date = report_date,
+           value_target = value_raw, value_target_7dav = value_7dav)
+  df %>%
+    left_join(target_lookup, by = "reference_date") %>%
+    left_join(target_values, by = c("reference_date", "target_date"))
 }
 
 
@@ -243,30 +363,97 @@ add_log_transformed <- function(df, lagged_term_list) {
 #' @param lag_col Column name representing the lag between the reference and issue date.
 #' @param temporal_resol A string indicating the temporal resolution ("daily" or "weekly").
 #'                       Defaults to "daily".
+#' @param onehot_weekdays Named or unnamed list of character vectors defining day groups
+#'   for one-hot encoding.  Each group becomes one binary column per date column.
+#'   Names, when present, are used as column prefixes; otherwise day abbreviations are
+#'   concatenated.  Defaults to `list(Mon=c("Mon"), Weekends=c("Sat","Sun"))`.
 #'
 #' @details
-#' - If `temporal_resol` is "daily", one-hot encoded day-of-week columns are added
+#' - If `temporal_resol` is "daily", one-hot encoded day-of-week group columns are added
 #'   for both `refd_col` (reference date) and `"report_date"`.
 #' - One-hot encoded week-of-month columns are added for `"report_date"` in all cases.
 #'
 #' @return A modified data frame with additional date-related feature columns.
 #'
 #' @export
-add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol="daily") {
+add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily",
+                                  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
   df$report_date <- df[[refd_col]] + df[[lag_col]]
-  if (temporal_resol=="daily"){
-    # Add columns for day-of-week effect
-    df <- add_dayofweek(df, refd_col, "_ref", WEEKDAYS_ABBR)
-    df <- add_dayofweek(df, "report_date", "_issue", WEEKDAYS_ABBR)
-    # Add columns for weekends
-    df$Weekends_issue <- as.integer(df$Sat_issue == 1 | df$Sun_issue == 1)
-    df$Weekends_ref <- as.integer(df$Sat_ref == 1 | df$Sun_ref == 1)
+  if (temporal_resol == "daily") {
+    df <- add_grouped_dayofweek(df, refd_col, "_ref", onehot_weekdays)
+    df <- add_grouped_dayofweek(df, "report_date", "_issue", onehot_weekdays)
   }
-  # Add columns for week-of-month effect
   df <- add_weekofmonth(df, "report_date", WEEK_ISSUES)
-
-  return (as.data.frame(df))
+  return(as.data.frame(df))
 }
+
+#' Process an auxiliary reporting triangle into prefixed feature columns
+#'
+#' Runs a single auxiliary data frame (one geo, one signal) through the
+#' fill → 7-day-average → lagged-terms → log-transform pipeline and
+#' renames all value-derived columns with a `{name}_` prefix so they can
+#' be safely joined to the primary preprocessed data frame.
+#'
+#' @param df Data frame with columns `reference_date`, `report_date`, `lag`,
+#'   and `value` (the signal values).
+#' @param name Character scalar used as the column prefix (e.g. `"nssp"`).
+#' @param lagged_term_list Numeric vector of lag values (same as used for the
+#'   primary signal).
+#' @param temporal_resol `"daily"` or `"weekly"`.
+#' @param smoothed Logical; if `FALSE` and `temporal_resol == "daily"`, a 7-day
+#'   moving average is computed. Otherwise `value_7dav` is set equal to
+#'   `value_raw`.
+#'
+#' @return Data frame with columns `reference_date`, `report_date`, `lag`, and
+#'   all value/log columns prefixed with `{name}_`.  Useful predictors are
+#'   `{name}_log_value_7dav_lag{N}` and `{name}_log_delta_value_7dav_lag{N}`;
+#'   see [aux_feature_names()].
+process_aux_triangle <- function(df, name, lagged_term_list, temporal_resol, smoothed,
+                                max_report_override = NULL) {
+  filled_df <- fill_missing_updates(df, "value", "reference_date", "lag", temporal_resol,
+                                    max_report_override = max_report_override)
+  if (nrow(filled_df) == 0) {
+    expected_cols <- c("reference_date", "report_date", "lag",
+                       aux_feature_names(name, lagged_term_list))
+    return(setNames(data.frame(matrix(ncol = length(expected_cols), nrow = 0)),
+                    expected_cols))
+  }
+  if (!smoothed && temporal_resol == "daily") {
+    filled_df <- add_7davs(filled_df, "value_raw", "reference_date", "lag")
+  } else {
+    filled_df$value_7dav <- filled_df$value_raw
+  }
+  filled_df <- add_lagged_terms(
+    filled_df, "value_7dav", "reference_date", "lag", lagged_term_list, temporal_resol
+  )
+  filled_df <- add_log_transformed(filled_df, lagged_term_list)
+
+  value_cols <- grep("^(value_|log_)", colnames(filled_df), value = TRUE)
+  colnames(filled_df)[colnames(filled_df) %in% value_cols] <- paste0(name, "_", value_cols)
+
+  filled_df[, c("reference_date", "report_date", "lag", paste0(name, "_", value_cols))]
+}
+
+
+#' Return the feature column names produced by an auxiliary triangle
+#'
+#' Gives the column names that [process_aux_triangle()] adds for a given
+#' auxiliary signal, matching the log-value and log-delta features used by
+#' the primary signal in [create_params_list()].
+#'
+#' @param name Character scalar; the aux triangle name (must match what was
+#'   passed to [data_preprocessing()]).
+#' @param lagged_term_list Numeric vector of lag values.
+#'
+#' @return Character vector of feature column names.
+#' @export
+aux_feature_names <- function(name, lagged_term_list) {
+  c(
+    paste0(name, "_log_value_7dav_lag", lagged_term_list),
+    paste0(name, "_log_delta_value_7dav_lag", lagged_term_list)
+  )
+}
+
 
 #' Data Preprocessing Function
 #'
@@ -287,14 +474,29 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol="daily") 
 #' @param value_type Character indicating the type of values ('count' or 'fraction').
 #' @param temporal_resol Character specifying temporal resolution ('daily' or 'weekly').
 #' @param smoothed Logical indicating whether smoothing should be applied.
+#' @param target_lag_lower_tolerance Non-negative days before `ref_lag` to
+#'   search for genuine target revisions.
+#' @param target_lag_upper_tolerance Non-negative days after `ref_lag` to
+#'   search for genuine target revisions.
+#' @param aux_triangles Named list of auxiliary reporting-triangle data frames.
+#'   Each element must have columns `reference_date`, `report_date`, `lag`, and
+#'   `value` (already filtered to the same single geo as `df`).  Each is run
+#'   through the same fill → lag → log pipeline as the primary signal and
+#'   joined to the result; columns are prefixed with the list element name.
+#'   Use [aux_feature_names()] to obtain the resulting predictor column names
+#'   for [create_params_list()].
 #'
-#' @importFrom dplyr full_join distinct
+#' @importFrom dplyr full_join left_join distinct
 #' @importFrom english english
 #'
 #' @export
 data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                suffixes=c(""), lagged_term_list = NULL, value_type="count",
-                               temporal_resol="daily", smoothed=FALSE) {
+                               temporal_resol="daily", smoothed=FALSE,
+                               target_lag_lower_tolerance = 0,
+                               target_lag_upper_tolerance = 0,
+                               aux_triangles = NULL,
+                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
   if (value_type == "count") {
     if (length(value_col) > 1) warning("Multiple value column names provided; only the first one will be used.")
     if (length(unique(suffixes)) > 1) warning("Multiple suffixes provided; only the first one will be used.")
@@ -332,6 +534,11 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
     lagged_term_list <- c(lagged_term_list, 7)
   } # Make sure we always have the lagged term from last week
 
+  target_lookup <- create_target_lookup(
+    df, value_col[1], refd_col, lag_col, ref_lag,
+    target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol
+  )
+
   dfList <- lapply(value_col, function(value_col) {
     filled_df <- fill_missing_updates(df, value_col, refd_col, lag_col, temporal_resol)
     if (!(smoothed) & (temporal_resol == "daily")){
@@ -340,14 +547,15 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
       filled_df$value_7dav = filled_df$value_raw
     }
     filled_df <- add_lagged_terms(filled_df, "value_7dav", "reference_date", "lag", lagged_term_list, temporal_resol)
-    filled_df <- add_targets(filled_df, "value_raw", "reference_date", "lag", ref_lag, temporal_resol)
+    filled_df <- attach_target_lookup(filled_df, target_lookup)
     add_log_transformed(filled_df, lagged_term_list)
   })
 
   merged_df <- Reduce(
     function(x, y) full_join(
       x, y,
-      by = c("reference_date", "report_date", "lag", "target_date"),
+      by = c("reference_date", "report_date", "lag", "target_date",
+             "target_lag", "target_type"),
       suffix = suffixes
     ),
     dfList
@@ -367,7 +575,26 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   }
 
   merged_df$inv_log_lag <- 1/(merged_df$lag + 1)
-  merged_df <- add_params_for_dates(merged_df, "reference_date", "lag", temporal_resol)
+  merged_df <- add_params_for_dates(merged_df, "reference_date", "lag", temporal_resol, onehot_weekdays)
+
+  if (!is.null(aux_triangles)) {
+    primary_max_report <- max(merged_df$report_date)
+    for (nm in names(aux_triangles)) {
+      aux_processed <- process_aux_triangle(
+        aux_triangles[[nm]], nm, lagged_term_list, temporal_resol, smoothed,
+        max_report_override = primary_max_report
+      )
+      if (nrow(aux_processed) == 0L) {
+        merged_df <- merged_df[0L, ]
+        break
+      }
+      merged_df <- dplyr::left_join(
+        merged_df, aux_processed,
+        by = c("reference_date", "report_date", "lag")
+      )
+      merged_df <- merged_df[!is.na(merged_df[[paste0(nm, "_value_raw")]]), ]
+    }
+  }
 
   merged_df <- merged_df %>%
     filter(.data$lag < ref_lag)

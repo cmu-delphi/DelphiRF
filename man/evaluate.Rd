@@ -2,9 +2,7 @@
 % Please edit documentation in R/model.R
 \name{evaluate}
 \alias{evaluate}
-\title{Evaluation of the test results based on WIS score
-The WIS score calculation is based on the weighted_interval_score function
-from the \code{evalcast} package from Delphi}
+\title{Evaluation of the test results based on WIS score}
 \usage{
 evaluate(test_data, taus, response)
 }
@@ -17,6 +15,4 @@ each requested quantile. Each row represents an update with certain
 }
 \description{
 Evaluation of the test results based on WIS score
-The WIS score calculation is based on the weighted_interval_score function
-from the \code{evalcast} package from Delphi
 }

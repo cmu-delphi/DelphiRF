@@ -41,6 +41,7 @@ revision_forecast <- function(train_data, test_data, taus,
                               smoothed_target=TRUE,
                               lagged_term_list=NULL,
                               params_list=NULL,
+                              extra_params=NULL,
                               temporal_resol="daily",
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
@@ -49,9 +50,12 @@ revision_forecast <- function(train_data, test_data, taus,
                               indicator="testdata", signal="",
                               geo_level="state", signal_suffix="",
                               training_end_date="",
-                              training_days =365,
+                              training_days=365,
                               train_models = TRUE,
-                              make_predictions=TRUE) {
+                              make_predictions=TRUE,
+                              onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                              time_limit = NULL,
+                              backend = SOLVER_BACKEND) {
 
 
 
@@ -77,7 +81,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, onehot_weekdays, extra_params)
   }
 
   if (smoothed_target) {
@@ -94,17 +98,42 @@ revision_forecast <- function(train_data, test_data, taus,
 
   test_data_list <- list()
 
-  if (train_models) {
-    sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
-    train_result <- add_sqrtscale(train_data, sqrt_max_raw)
-    train_data <- train_result$data
-    kept_bins <- train_result$kept_bins
-    #for (col in kept_bins) {
-    #  proportion <- sum(train_data[[col]]) / nrow(train_data)
-    #  cat(sprintf("Sum of %s: %.4f\n", col, proportion))
-    #}
-    train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
+  sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
+  train_result <- add_sqrtscale(train_data, sqrt_max_raw)
+  train_data <- train_result$data
+  kept_bins <- train_result$kept_bins
+  train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
+
+  .response_sd <- stats::sd(train_data[[response]], na.rm = TRUE)
+  if (is.na(.response_sd)) {
+    # drop_na() removed every row — no usable training data at all.
+    warning(sprintf(
+      "No training rows after preprocessing [geo=%s lag_group=%s]; skipping",
+      geo, test_lag_group
+    ))
+    return(data.frame())
   }
+  if (.response_sd < 1e-8) {
+    # Constant response (sd ~ 0): fill_missing_updates synthesised the entire lag
+    # group from forward-filled zeros. GLPK cycles indefinitely on degenerate LPs,
+    # so skip the solver and return the constant as the prediction directly.
+    warning(sprintf(
+      "Constant training response [geo=%s lag_group=%s]; predicting constant — likely all synthetic data",
+      geo, test_lag_group
+    ))
+    if (!make_predictions) return(data.frame())
+    .constant_val <- mean(train_data[[response]], na.rm = TRUE)
+    test_out <- test_data[, intersect(c(basic_cols, response), colnames(test_data)), drop = FALSE]
+    test_out <- tidyr::drop_na(test_out, dplyr::all_of(basic_cols))
+    test_out[paste0("predicted_tau", taus)] <- .constant_val
+    if (response %in% colnames(test_out)) {
+      test_out <- evaluate(test_out, taus, response = response)
+    }
+    test_out$gamma <- gamma[1]
+    test_out$lambda <- lambda[1]
+    return(as.data.frame(test_out))
+  }
+  rm(.response_sd)
 
   # pre-process the test data with max_raw
   if (make_predictions) {
@@ -120,7 +149,7 @@ revision_forecast <- function(train_data, test_data, taus,
     # Get the trained_model
     obj <- get_model(model_path, train_data, params_list, response, taus,
                      sqrt_max_raw, kept_bins,
-                     lambda[1], gamma[1], lp_solver, train_models)
+                     lambda[1], gamma[1], lp_solver, train_models, time_limit, backend)
 
     sqrt_max_raw <- attr(obj, "sqrt_max_raw")
     kept_bins <- attr(obj, "kept_bins")
@@ -150,7 +179,7 @@ revision_forecast <- function(train_data, test_data, taus,
 
       # Get the trained_model
       obj <- get_model(model_path, train_data, params_list, response, taus, sqrt_max_raw,
-                       l, g, lp_solver, train_models)
+                       l, g, lp_solver, train_models, time_limit, backend)
 
       if (make_predictions) {
         test_data <- get_prediction(test_data, taus, params_list, response, obj,
@@ -209,6 +238,7 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                  gamma_candidates = c(0.1, 1, 10),
                                  lag_pad_candidates = c(0, 1, 2, 3),
                                  lp_solver=LP_SOLVER,
+                                 backend=SOLVER_BACKEND,
                                  geo="ma", value_type="count",
                                  model_save_dir="./receiving",
                                  indicator="testdata", signal="",
@@ -258,7 +288,8 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                      signal_suffix, training_end_date,
                                      training_days,
                                      train_models=TRUE,
-                                     make_predictions=TRUE)
+                                     make_predictions=TRUE,
+                                     backend=backend)
 
           scores <- c(scores, mean(results$wis, na.rm=TRUE))
         }
@@ -317,9 +348,11 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
                      params_list=NULL,
+                     extra_params=NULL,
                      lambda=LAMBDA, gamma=GAMMA, lag_pad=LAG_PAD,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
+                     backend=SOLVER_BACKEND,
                      geo="ma", value_type="count",
                      model_save_dir="./receiving",
                      indicator="testdata", signal="",
@@ -327,7 +360,9 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      training_end_date="",
                      training_days=365,
                      train_models = TRUE,
-                     make_predictions = TRUE) {
+                     make_predictions = TRUE,
+                     onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                     time_limit = NULL) {
 
   testing_start_date <- as.Date(testing_start_date)
 
@@ -340,8 +375,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       
       # Detect weekly spacing
       if (length(lag_diffs) == 1 && lag_diffs == 7) {
+        if (temporal_resol != "weekly") message("Auto-detected weekly temporal resolution from lag spacing.")
         temporal_resol <- "weekly"
-        message("Auto-detected weekly temporal resolution from lag spacing.")
       }
     }
   }
@@ -388,13 +423,15 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
 
     results <- revision_forecast(train_data, test_data, taus,
                                  smoothed_target, lagged_term_list,
-                                 params_list, temporal_resol,
+                                 params_list, extra_params, temporal_resol,
                                  l, g, lp_solver, test_lag_group,
                                  geo, value_type, model_save_dir,
                                  indicator, signal, geo_level,
                                  signal_suffix, as.character(testing_start_date),
                                  training_days, train_models,
-                                 make_predictions)
+                                 make_predictions, onehot_weekdays,
+                                 time_limit = time_limit,
+                                 backend = backend)
 
     test_data_list <- append(test_data_list, list(results))
   }

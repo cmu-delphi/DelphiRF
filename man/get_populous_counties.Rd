@@ -7,5 +7,5 @@
 get_populous_counties()
 }
 \description{
-Subset list of counties to those included in the 200 most populous in the US
+Requires the covidcast package, which is not installed by default.
 }

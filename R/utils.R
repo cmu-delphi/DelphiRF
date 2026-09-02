@@ -200,19 +200,13 @@ training_days_check <- function(report_date, training_days) {
 
 #' Subset list of counties to those included in the 200 most populous in the US
 #'
+#' Requires the covidcast package, which is not installed by default.
+#'
 #' @importFrom dplyr select %>% arrange desc pull
 #' @importFrom rlang .data
 #' @importFrom utils head
 get_populous_counties <- function() {
-  return(
-    covidcast::county_census %>%
-      dplyr::select(pop = .data$POPESTIMATE2019, fips = .data$FIPS) %>%
-      # Drop megacounties (states)
-      filter(!endsWith(.data$fips, "000")) %>%
-      arrange(desc(.data$pop)) %>%
-      pull(.data$fips) %>%
-      head(n=200)
-  )
+  stop("get_populous_counties() requires the covidcast package. Install it with renv::install(\"cmu-delphi/covidcast/R-packages/covidcast\").")
 }
 
 #' Write a message to the console with the current time
