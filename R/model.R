@@ -296,12 +296,12 @@ get_model <- function(model_path, train_data, covariates, response, tau,
     # Quantile regression
     vec_7dav <- train_data[["value_7dav_diff"]]
     vec_slope <- train_data[["value_slope_diff"]]
-    if (is.null(vec_7dav) || is.null(vec_slope)) {
+    if (is.null(vec_7dav) && is.null(vec_slope)) {
+      weights <- NULL
+    } else {
       normalized_7dav_diff <- if (is.null(vec_7dav)) 1 else (vec_7dav - min(vec_7dav)) / (max(vec_7dav) - min(vec_7dav))
       normalized_slope_diff <- if (is.null(vec_slope)) 1 else (vec_slope - min(vec_slope)) / (max(vec_slope) - min(vec_slope))
       weights <- exp(-gamma * normalized_7dav_diff * normalized_slope_diff)
-    } else {
-      weights <- NULL
     }
 
     if (backend == "quantreg") {
