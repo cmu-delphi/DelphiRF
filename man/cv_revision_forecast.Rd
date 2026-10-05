@@ -16,6 +16,7 @@ cv_revision_forecast(
   gamma_candidates = c(0.1, 1, 10),
   lag_pad_candidates = c(0, 1, 2, 3),
   lp_solver = LP_SOLVER,
+  backend = SOLVER_BACKEND,
   geo = "ma",
   value_type = "count",
   model_save_dir = "./receiving",

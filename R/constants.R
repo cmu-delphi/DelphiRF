@@ -32,6 +32,10 @@ GAMMA <- 0.1
 #' @export
 LP_SOLVER <- "gurobi" # LP solver to use in quantile_lasso(); "gurobi" or "glpk"
 
+#' @rdname constants
+#' @export
+SOLVER_BACKEND <- "quantreg" # quantile regression backend; "quantreg" (default) or "quantgen"
+
 # Response Variables
 #' @rdname constants
 #' @export

@@ -12,11 +12,13 @@ DelphiRF(
   smoothed_target = TRUE,
   lagged_term_list = NULL,
   params_list = NULL,
+  extra_params = NULL,
   lambda = LAMBDA,
   gamma = GAMMA,
   lag_pad = LAG_PAD,
   temporal_resol = "daily",
   lp_solver = LP_SOLVER,
+  backend = SOLVER_BACKEND,
   geo = "ma",
   value_type = "count",
   model_save_dir = "./receiving",
@@ -27,7 +29,9 @@ DelphiRF(
   training_end_date = "",
   training_days = 365,
   train_models = TRUE,
-  make_predictions = TRUE
+  make_predictions = TRUE,
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+  time_limit = NULL
 )
 }
 \arguments{

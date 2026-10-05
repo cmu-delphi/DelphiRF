@@ -4,7 +4,13 @@
 \alias{create_params_list}
 \title{Create Parameters List}
 \usage{
-create_params_list(train_data, lagged_term_list, temporal_resol)
+create_params_list(
+  train_data,
+  lagged_term_list,
+  temporal_resol,
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+  extra_params = NULL
+)
 }
 \arguments{
 \item{train_data}{Data frame containing training data, including lag values.}

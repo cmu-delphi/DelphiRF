@@ -11,6 +11,7 @@ revision_forecast(
   smoothed_target = TRUE,
   lagged_term_list = NULL,
   params_list = NULL,
+  extra_params = NULL,
   temporal_resol = "daily",
   lambda = 0.1,
   gamma = 0.1,
@@ -26,7 +27,10 @@ revision_forecast(
   training_end_date = "",
   training_days = 365,
   train_models = TRUE,
-  make_predictions = TRUE
+  make_predictions = TRUE,
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+  time_limit = NULL,
+  backend = SOLVER_BACKEND
 )
 }
 \arguments{

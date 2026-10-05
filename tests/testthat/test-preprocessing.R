@@ -63,28 +63,32 @@ test_that("fill_missing_updates correctly processes weekly data", {
   expect_equal(nrow(filled_df), 2 + 3)  # Two rows expected since it's weekly data
 })
 
-test_that("fill_missing_updates raises an error for irregular gaps", {
+test_that("weekly data are normalized to epiweek-ending Saturdays", {
   df <- data.frame(
     ref_date = as.Date(c("2023-01-01", "2023-01-05")),
     lag = c(0, 4),
     value = c(10, 20)
   )
 
-  expect_error(
-    fill_missing_updates(df, "value", "ref_date", "lag", "weekly"),
-    "The reference dates do not regularly have a gap of 7 days. Some reference dates will be ignored. Please check your input data."
-  )  # Function should stop due to irregular gap
+  filled_df <- fill_missing_updates(df, "value", "ref_date", "lag", "weekly")
+  expect_true(all(weekdays(filled_df$reference_date) == "Saturday"))
+  expect_true(all(weekdays(filled_df$report_date) == "Saturday"))
+  expect_true(all(filled_df$lag %% 7 == 0))
+})
 
+test_that("weekly data keep the latest revision in each epiweek", {
   df <- data.frame(
-    ref_date = as.Date(c("2023-01-01", "2023-01-08")),
-    lag = c(0, 4),
+    ref_date = as.Date(c("2023-01-07", "2023-01-07")),
+    lag = c(4, 6), # Wednesday and Friday of the following epiweek
     value = c(10, 20)
   )
 
-  expect_error(
-    fill_missing_updates(df, "value", "ref_date", "lag", "weekly"),
-    "The report dates do not regularly have a gap of 7 days. Some report dates will be ignored. Please check your input data."
-  )  # Function should stop due to irregular gap
+  filled_df <- fill_missing_updates(df, "value", "ref_date", "lag", "weekly")
+  expect_equal(nrow(filled_df), 1)
+  expect_equal(filled_df$reference_date, as.Date("2023-01-07"))
+  expect_equal(filled_df$report_date, as.Date("2023-01-14"))
+  expect_equal(filled_df$lag, 7)
+  expect_equal(filled_df$value_raw, 20)
 })
 
 
@@ -172,6 +176,4 @@ test_that("testing the calculation of week of a month", {
   expect_equal(get_weekofmonth(as.Date("2022-10-30")), 1)
 
 })
-
-
 
