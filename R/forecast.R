@@ -12,6 +12,15 @@
 #' @param params_list A list of model parameters used for training and prediction.
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
+#' @param onehot_weekdays Named or unnamed weekday groups used as calendar
+#'   predictors. The default adds Monday and weekend indicators. If the groups
+#'   form an exhaustive seven-day partition, the least frequent group is used
+#'   as the reference category.
+#' @param model_backend Quantile-regression backend. `"quantreg"` is the
+#'   default, using standardized predictors and weighted lasso fits.
+#'   `"quantgen"` retains the previous optional solver.
+#' @param time_limit Optional solver time limit passed to the `quantgen`
+#'   backend. It is ignored by the default `quantreg` backend.
 #' @template train_models-template
 #' @template make_predictions-template
 #' @template model_save_dir-template
@@ -29,9 +38,8 @@
 #' @template training_end_date-template
 #' @template training_days-template
 #'
-#' @return A list containing:
-#'   \item{test_data}{The test dataset with added forecast evaluations.}
-#'   \item{coefs}{Model coefficients from the trained model.}
+#' @return A tibble containing forecasts and, when the completed revision value
+#'   is available, evaluation scores.
 #'
 #' @importFrom dplyr %>% select bind_rows
 #' @importFrom tidyr drop_na
@@ -45,13 +53,18 @@ revision_forecast <- function(train_data, test_data, taus,
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
                               geo="ma", value_type="count",
-                              model_save_dir="./receiving",
+                              model_save_dir=file.path(tempdir(), "DelphiRF", "models"),
                               indicator="testdata", signal="",
                               geo_level="state", signal_suffix="",
                               training_end_date="",
-                              training_days =365,
+                              training_days=365,
                               train_models = TRUE,
-                              make_predictions=TRUE) {
+                              make_predictions=TRUE,
+                              onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                              model_backend = c("quantreg", "quantgen"),
+                              time_limit = NULL) {
+
+  model_backend <- match.arg(model_backend)
 
 
 
@@ -77,7 +90,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, onehot_weekdays)
   }
 
   if (smoothed_target) {
@@ -94,16 +107,41 @@ revision_forecast <- function(train_data, test_data, taus,
 
   test_data_list <- list()
 
-  if (train_models) {
-    sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
-    train_result <- add_sqrtscale(train_data, sqrt_max_raw)
-    train_data <- train_result$data
-    kept_bins <- train_result$kept_bins
-    #for (col in kept_bins) {
-    #  proportion <- sum(train_data[[col]]) / nrow(train_data)
-    #  cat(sprintf("Sum of %s: %.4f\n", col, proportion))
-    #}
-    train_data <- train_data[, c(basic_cols, params_list, extra_cols, kept_bins, response)] %>% drop_na()
+  sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
+  train_result <- add_sqrtscale(train_data, sqrt_max_raw)
+  train_data <- train_result$data
+  kept_bins <- train_result$kept_bins
+  selected_train_cols <- c(basic_cols, params_list, extra_cols, kept_bins,
+                           response)
+  train_data <- train_data[, unique(selected_train_cols)] %>% drop_na()
+
+  response_sd <- stats::sd(train_data[[response]], na.rm = TRUE)
+  if (is.na(response_sd)) {
+    warning(sprintf(
+      "No training rows after preprocessing [geo=%s lag_group=%s]; skipping",
+      geo, test_lag_group
+    ))
+    return(tibble::tibble())
+  }
+  if (response_sd < 1e-8) {
+    warning(sprintf(
+      "Constant training response [geo=%s lag_group=%s]; predicting constant",
+      geo, test_lag_group
+    ))
+    if (!make_predictions) return(tibble::tibble())
+    constant_value <- mean(train_data[[response]], na.rm = TRUE)
+    test_out <- test_data[
+      , intersect(c(basic_cols, response), colnames(test_data)), drop = FALSE
+    ]
+    test_out <- tidyr::drop_na(test_out, dplyr::all_of(basic_cols))
+    test_out[paste0("predicted_tau", taus)] <- constant_value
+    if (response %in% colnames(test_out)) {
+      test_out <- evaluate(test_out, taus, response = response)
+    }
+    test_out$gamma <- gamma[1]
+    test_out$lambda <- lambda[1]
+    test_out$model_backend <- model_backend
+    return(tibble::as_tibble(test_out))
   }
 
   # pre-process the test data with max_raw
@@ -117,10 +155,15 @@ revision_forecast <- function(train_data, test_data, taus,
                                     geo=geo, value_type=value_type,
                                     test_lag_group=test_lag_group, tau="_all",
                                     model_save_dir=model_save_dir)
+    if (model_backend != "quantgen") {
+      model_path <- sub("\\.rds$", paste0("_backend_", model_backend, ".rds"),
+                        model_path)
+    }
     # Get the trained_model
     obj <- get_model(model_path, train_data, params_list, response, taus,
                      sqrt_max_raw, kept_bins,
-                     lambda[1], gamma[1], lp_solver, train_models)
+                     lambda[1], gamma[1], lp_solver, train_models,
+                     model_backend = model_backend, time_limit = time_limit)
 
     sqrt_max_raw <- attr(obj, "sqrt_max_raw")
     kept_bins <- attr(obj, "kept_bins")
@@ -146,11 +189,16 @@ revision_forecast <- function(train_data, test_data, taus,
                                            geo=geo, value_type=value_type,
                                            test_lag_group=test_lag_group, tau="_all",
                                            model_save_dir=model_save_dir)
+      if (model_backend != "quantgen") {
+        model_path <- sub("\\.rds$", paste0("_backend_", model_backend, ".rds"),
+                          model_path)
+      }
 
 
       # Get the trained_model
-      obj <- get_model(model_path, train_data, params_list, response, taus, sqrt_max_raw,
-                       l, g, lp_solver, train_models)
+      obj <- get_model(model_path, train_data, params_list, response, taus,
+                       sqrt_max_raw, kept_bins, l, g, lp_solver, train_models,
+                       model_backend = model_backend, time_limit = time_limit)
 
       if (make_predictions) {
         test_data <- get_prediction(test_data, taus, params_list, response, obj,
@@ -160,7 +208,31 @@ revision_forecast <- function(train_data, test_data, taus,
     }
   }
 
-  return(as.data.frame(bind_rows(test_data_list)))
+  return(tibble::as_tibble(bind_rows(test_data_list)))
+}
+
+validate_genuine_event_options <- function(df, genuine_training,
+                                           genuine_testing) {
+  if (!is.logical(genuine_training) || length(genuine_training) != 1L ||
+      is.na(genuine_training)) {
+    stop("genuine_training must be one non-missing logical value.")
+  }
+  if (!is.logical(genuine_testing) || length(genuine_testing) != 1L ||
+      is.na(genuine_testing)) {
+    stop("genuine_testing must be one non-missing logical value.")
+  }
+  if ((genuine_training || genuine_testing) &&
+      !("genuine_event" %in% names(df))) {
+    stop(paste0(
+      "A logical genuine_event column is required when genuine_training or ",
+      "genuine_testing is TRUE. Set both parameters to FALSE to use all rows."
+    ))
+  }
+  if ((genuine_training || genuine_testing) &&
+      !is.logical(df$genuine_event)) {
+    stop("genuine_event must be a logical column containing TRUE, FALSE, or NA.")
+  }
+  invisible(TRUE)
 }
 
 #' Cross-Validation for Forecast Revision
@@ -181,6 +253,14 @@ revision_forecast <- function(train_data, test_data, taus,
 #' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
 #' @param n_folds Integer, number of cross-validation folds.
+#' @param genuine_training Logical; if `TRUE`, use only rows whose
+#'   `genuine_event` value is `TRUE` in each cross-validation training fold.
+#' @param genuine_testing Logical; if `TRUE`, use only rows whose
+#'   `genuine_event` value is `TRUE` in each validation fold.
+#' @param model_backend Quantile-regression backend passed to
+#'   [revision_forecast()].
+#' @param time_limit Optional solver time limit passed to the `quantgen`
+#'   backend.
 #' @template train_models-template
 #' @template make_predictions-template
 #' @template model_save_dir-template
@@ -210,18 +290,30 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                  lag_pad_candidates = c(0, 1, 2, 3),
                                  lp_solver=LP_SOLVER,
                                  geo="ma", value_type="count",
-                                 model_save_dir="./receiving",
+                                 model_save_dir=file.path(tempdir(), "DelphiRF", "models"),
                                  indicator="testdata", signal="",
                                  geo_level="state", signal_suffix="",
                                  training_end_date="",
                                  training_days=365,
-                                 n_folds = 5) {
+                                 n_folds = 5,
+                                 genuine_training = TRUE,
+                                 genuine_testing = TRUE,
+                                 model_backend = c("quantreg", "quantgen"),
+                                 time_limit = NULL) {
+  model_backend <- match.arg(model_backend)
+  validate_genuine_event_options(df, genuine_training, genuine_testing)
+
   if (as.character(training_end_date) == "") {
-    training_end_date <- max(df$report_date)
-  } else {
-    train_data <- train_data %>%
-      filter(report_date <= as.Date(training_end_date))
+    training_end_date <- max(df$report_date, na.rm = TRUE)
   }
+  training_end_date <- as.Date(training_end_date)
+  training_start_date <- training_end_date - training_days
+  df <- df %>%
+    filter(
+      report_date <= training_end_date,
+      target_date > training_start_date,
+      target_date <= training_end_date
+    )
 
   folds <- rep(seq(1, n_folds), length.out = nrow(df))
 
@@ -239,9 +331,23 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
           validation_idx <- which(folds == fold, arr.ind = TRUE)
           validation_data <- df[validation_idx, ]
           training_data <- df[-validation_idx, ]
+          if (genuine_training) {
+            training_data <- training_data[
+              !is.na(training_data$genuine_event) & training_data$genuine_event,
+              , drop = FALSE
+            ]
+          }
+          if (genuine_testing) {
+            validation_data <- validation_data[
+              !is.na(validation_data$genuine_event) & validation_data$genuine_event,
+              , drop = FALSE
+            ]
+          }
 
           train_data <- data_filteration(test_lag, training_data, lag_pad)
           val_data <- data_filteration(test_lag, validation_data, 0)
+
+          if (nrow(train_data) < 10L || nrow(val_data) == 0L) next
 
           if (length(test_lag) == 1) {
             prefix_for_lag <- as.character(test_lag)
@@ -249,16 +355,22 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
             prefix_for_lag <- paste0(as.character(test_lag[1]), "_", as.character(test_lag[2]))
           }
 
-          results <- revision_forecast(train_data, val_data, taus,
-                                     smoothed_target, lagged_term_list,
-                                     params_list, temporal_resol,
-                                     lambda, gamma, lp_solver, prefix_for_lag,
-                                     geo, value_type, model_save_dir,
-                                     indicator, signal, geo_level,
-                                     signal_suffix, training_end_date,
-                                     training_days,
-                                     train_models=TRUE,
-                                     make_predictions=TRUE)
+          results <- revision_forecast(
+            train_data = train_data, test_data = val_data, taus = taus,
+            smoothed_target = smoothed_target,
+            lagged_term_list = lagged_term_list,
+            params_list = params_list,
+            temporal_resol = temporal_resol,
+            lambda = lambda, gamma = gamma, lp_solver = lp_solver,
+            test_lag_group = prefix_for_lag, geo = geo,
+            value_type = value_type, model_save_dir = model_save_dir,
+            indicator = indicator, signal = signal, geo_level = geo_level,
+            signal_suffix = signal_suffix,
+            training_end_date = training_end_date,
+            training_days = training_days,
+            train_models = TRUE, make_predictions = TRUE,
+            model_backend = model_backend, time_limit = time_limit
+          )
 
           scores <- c(scores, mean(results$wis, na.rm=TRUE))
         }
@@ -288,10 +400,25 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #'
 #' @param df A data frame containing historical data with `target_date` and `report_date` columns.
 #' @param testing_start_date A character or Date object specifying the start date for testing.
+#' @param genuine_training Logical; if `TRUE`, train only on rows whose
+#'   `genuine_event` value is `TRUE`. These are reports present in the raw
+#'   input, including unchanged repeated reports.
+#' @param genuine_testing Logical; if `TRUE`, predict only rows whose
+#'   `genuine_event` value is `TRUE`.
+#' @param onehot_weekdays Named or unnamed weekday groups used as calendar
+#'   predictors. The default adds Monday and weekend indicators. If the groups
+#'   form an exhaustive seven-day partition, the least frequent group is used
+#'   as the reference category.
+#' @param model_backend Quantile-regression backend. `"quantreg"` is the
+#'   default, using standardized predictors and weighted lasso fits.
+#'   `"quantgen"` preserves the previous optional implementation.
+#' @param time_limit Optional solver time limit passed to the `quantgen`
+#'   backend.
 #' @param taus A numeric vector of quantiles for probabilistic forecasting.
 #' @param lagged_term_list A list of lagged terms to be used as predictors.
 #' @param params_list A list of model parameters for forecasting.
-#' @param test_lag_groups A vector of test lag groups to process (default: `TEST_LAG_GROUPS`).
+#' @param test_lag_groups A vector of test lag groups to process. When `NULL`,
+#'   daily or weekly defaults are selected from `temporal_resol`.
 #' @param lag_pad A numeric or named list of lag padding values (default: `LAG_PAD`).
 #' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
@@ -310,6 +437,11 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #' @template training_end_date-template
 #' @template training_days-template
 #'
+#' @details Lag groups with fewer than ten eligible training rows are skipped
+#'   rather than stopping forecasts for the remaining groups.
+#' @return A tibble containing the available forecasts across requested lag
+#'   groups.
+#'
 #' @importFrom dplyr %>% filter bind_rows
 #' @export
 DelphiRF <- function(df, testing_start_date, taus=TAUS,
@@ -321,15 +453,22 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
                      geo="ma", value_type="count",
-                     model_save_dir="./receiving",
+                     model_save_dir=file.path(tempdir(), "DelphiRF", "models"),
                      indicator="testdata", signal="",
                      geo_level="state", signal_suffix="",
                      training_end_date="",
                      training_days=365,
                      train_models = TRUE,
-                     make_predictions = TRUE) {
+                     make_predictions = TRUE,
+                     onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+                     genuine_training=TRUE,
+                     genuine_testing=TRUE,
+                     model_backend = c("quantreg", "quantgen"),
+                     time_limit = NULL) {
 
   testing_start_date <- as.Date(testing_start_date)
+  model_backend <- match.arg(model_backend)
+  validate_genuine_event_options(df, genuine_training, genuine_testing)
 
   # ---- Auto-detect temporal resolution from lag spacing ----
   if ("lag" %in% names(df)) {
@@ -340,8 +479,8 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       
       # Detect weekly spacing
       if (length(lag_diffs) == 1 && lag_diffs == 7) {
+        if (temporal_resol != "weekly") message("Auto-detected weekly temporal resolution from lag spacing.")
         temporal_resol <- "weekly"
-        message("Auto-detected weekly temporal resolution from lag spacing.")
       }
     }
   }
@@ -356,13 +495,22 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
   }
 
   geo_train_data <- df %>%
+    dplyr::filter(.data$report_date < testing_start_date) %>%
     dplyr::filter(.data$target_date <= testing_start_date) %>%
     dplyr::filter(.data$target_date > testing_start_date - training_days)
+  if (genuine_training) {
+    geo_train_data <- geo_train_data %>%
+      dplyr::filter(!is.na(.data$genuine_event) & .data$genuine_event)
+  }
   # Add weighting-related features to training data
   geo_train_data <- add_weights_related(geo_train_data)
 
   geo_test_data <- df %>%
     dplyr::filter(.data$report_date >= testing_start_date)
+  if (genuine_testing) {
+    geo_test_data <- geo_test_data %>%
+      dplyr::filter(!is.na(.data$genuine_event) & .data$genuine_event)
+  }
 
   test_data_list <- list()
 
@@ -382,26 +530,30 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     g <- handle_hyperparam(gamma, test_lag_group)
 
     train_data <- data_filteration(test_lag, geo_train_data, l_p)
-    if (nrow(train_data) == 0) next
+    # Sparse reporting cadences can leave an individual lag group with too
+    # few genuine revisions. Skip that group instead of aborting the entire
+    # location/origin forecast; revision_forecast() requires at least 10 rows.
+    if (nrow(train_data) < 10) next
     test_data <- data_filteration(test_lag, geo_test_data, 0)
     if (nrow(test_data) == 0) next
 
-    results <- revision_forecast(train_data, test_data, taus,
-                                 smoothed_target, lagged_term_list,
-                                 params_list, temporal_resol,
-                                 l, g, lp_solver, test_lag_group,
-                                 geo, value_type, model_save_dir,
-                                 indicator, signal, geo_level,
-                                 signal_suffix, as.character(testing_start_date),
-                                 training_days, train_models,
-                                 make_predictions)
+    results <- revision_forecast(
+      train_data = train_data, test_data = test_data, taus = taus,
+      smoothed_target = smoothed_target,
+      lagged_term_list = lagged_term_list, params_list = params_list,
+      temporal_resol = temporal_resol,
+      lambda = l, gamma = g, lp_solver = lp_solver,
+      test_lag_group = test_lag_group, geo = geo, value_type = value_type,
+      model_save_dir = model_save_dir, indicator = indicator, signal = signal,
+      geo_level = geo_level, signal_suffix = signal_suffix,
+      training_end_date = as.character(testing_start_date),
+      training_days = training_days, train_models = train_models,
+      make_predictions = make_predictions, onehot_weekdays = onehot_weekdays,
+      model_backend = model_backend, time_limit = time_limit
+    )
 
     test_data_list <- append(test_data_list, list(results))
   }
-  return(as.data.frame(bind_rows(test_data_list)))
+  return(tibble::as_tibble(bind_rows(test_data_list)))
 
 }
-
-
-
-

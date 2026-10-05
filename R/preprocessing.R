@@ -36,6 +36,21 @@ fill_rows <- function(df, refd_col, lag_col, min_refd, max_refd, ref_lag) {
   return (df_new)
 }
 
+normalize_weekly_observations <- function(df, refd_col, lag_col) {
+  if (nrow(df) == 0) return(df)
+  original_reference_date <- as.Date(df[[refd_col]])
+  original_report_date <- original_reference_date + df[[lag_col]]
+  epiweek_end <- function(x) x + ((6L - as.POSIXlt(x)$wday) %% 7L)
+  df[[refd_col]] <- epiweek_end(original_reference_date)
+  df$report_date <- epiweek_end(original_report_date)
+  df[[lag_col]] <- as.numeric(df$report_date - df[[refd_col]])
+  ordering <- order(df[[refd_col]], df$report_date,
+                    original_report_date, original_reference_date)
+  df <- df[ordering, , drop = FALSE]
+  key <- paste(df[[refd_col]], df$report_date, sep = "\r")
+  df[!duplicated(key, fromLast = TRUE), , drop = FALSE]
+}
+
 #' Fill missing updates in a time series dataset with lagged values
 #' Get pivot table, filling NANs. If there is no update on issue date D but
 #' previous reports exist for issue date D_p < D, all the dates between
@@ -56,13 +71,18 @@ fill_rows <- function(df, refd_col, lag_col, min_refd, max_refd, ref_lag) {
 #' @importFrom tidyr fill pivot_wider pivot_longer replace_na expand_grid
 #' @importFrom dplyr %>% select left_join mutate arrange distinct filter everything
 #' @export
-fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_resol="daily") {
+fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_resol = "daily",
+                              max_report_override = NULL) {
   df <- df %>% distinct()  # Remove duplicates if any
 
   if (nrow(df) == 0) {
     return(data.frame())
   }
   df$report_date <- df[[refd_col]] + df[[lag_col]]
+
+  if (temporal_resol == "weekly") {
+    df <- normalize_weekly_observations(df, refd_col, lag_col)
+  }
 
   # Generate a sequence of all possible dates
   if (temporal_resol == "daily"){
@@ -73,19 +93,17 @@ fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_reso
     all_reference_dates <- seq(min(df[[refd_col]]), max(df[[refd_col]]), by = "7 days")
     all_report_dates <- seq(min(df[["report_date"]]), max(df[["report_date"]]), by = "7 days")
 
-    # Check if all reference dates in df are within the generated sequence
-    if (!all(df[[refd_col]] %in% all_reference_dates)) {
-      stop("The reference dates do not regularly have a gap of 7 days. Some reference dates will be ignored. Please check your input data.")
-    }
-
-    # Check if all reference dates in df are within the generated sequence
-    if (!all(df$report_date %in% all_report_dates)) {
-      stop("The report dates do not regularly have a gap of 7 days. Some report dates will be ignored. Please check your input data.")
-    }
-
     gap <- 7
   } else {
     stop("Invalid temporal_resol. Choose either 'daily' or 'weekly'.")
+  }
+
+  if (!is.null(max_report_override)) {
+    max_report_override <- as.Date(max_report_override)
+    if (max_report_override > max(all_report_dates)) {
+      extra <- seq(max(all_report_dates) + gap, max_report_override, by = gap)
+      all_report_dates <- c(all_report_dates, extra)
+    }
   }
 
   # Create a complete grid of all combinations of reference_date and report_date
@@ -118,10 +136,10 @@ fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_reso
   backfill_df <- pivot_df %>%
     tidyr::pivot_longer(-report_date, values_to = "value_raw", names_to = refd_col) %>%
     mutate(
-      reference_date := as.Date(.data[[refd_col]]),
+      reference_date = as.Date(.data[[refd_col]]),
       lag = as.numeric(report_date - reference_date)
     ) %>%
-    filter(lag>=0)
+    filter(lag >= 0)
   return (as.data.frame(backfill_df))
 }
 
@@ -177,6 +195,3 @@ get_weekofmonth <- function(date) {
 
   return(week_number)
 }
-
-
-

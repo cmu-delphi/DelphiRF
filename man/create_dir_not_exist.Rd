@@ -2,13 +2,16 @@
 % Please edit documentation in R/utils.R
 \name{create_dir_not_exist}
 \alias{create_dir_not_exist}
-\title{Create directory if not already existing}
+\title{Create a directory and any missing parent directories}
 \usage{
 create_dir_not_exist(path)
 }
 \arguments{
-\item{path}{string specifying a directory to create}
+\item{path}{String specifying a directory to create.}
+}
+\value{
+\code{path}, invisibly.
 }
 \description{
-Create directory if not already existing
+Create a directory and any missing parent directories
 }

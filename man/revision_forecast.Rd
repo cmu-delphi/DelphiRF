@@ -18,7 +18,7 @@ revision_forecast(
   test_lag_group = "",
   geo = "ma",
   value_type = "count",
-  model_save_dir = "./receiving",
+  model_save_dir = file.path(tempdir(), "DelphiRF", "models"),
   indicator = "testdata",
   signal = "",
   geo_level = "state",
@@ -26,7 +26,10 @@ revision_forecast(
   training_end_date = "",
   training_days = 365,
   train_models = TRUE,
-  make_predictions = TRUE
+  make_predictions = TRUE,
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
+  model_backend = c("quantreg", "quantgen"),
+  time_limit = NULL
 )
 }
 \arguments{
@@ -43,11 +46,33 @@ values on the reference date are considered in model training.}
 
 \item{params_list}{A list of model parameters used for training and prediction.}
 
+\item{model_save_dir}{Directory for model cache files. The default is a
+session temporary directory. Supply an explicit path to keep models after
+the R session ends.}
+
+\item{training_end_date}{End date assigned to the training data. High-level
+forecasting functions use the latest input report date when this is empty.}
+
+\item{training_days}{Number of days assigned to the training target-date
+window. Functions receiving an unfiltered dataset apply this window;
+\code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
+model cache filenames.}
+
+\item{onehot_weekdays}{Named or unnamed weekday groups used as calendar
+predictors. The default adds Monday and weekend indicators. If the groups
+form an exhaustive seven-day partition, the least frequent group is used
+as the reference category.}
+
+\item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
+default, using standardized predictors and weighted lasso fits.
+\code{"quantgen"} retains the previous optional solver.}
+
+\item{time_limit}{Optional solver time limit passed to the \code{quantgen}
+backend. It is ignored by the default \code{quantreg} backend.}
+
 \item{train_models-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{make_predictions-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{model_save_dir-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{indicator-template}{\link{DESCRIPTION GOES HERE}}
 
@@ -68,15 +93,10 @@ values on the reference date are considered in model training.}
 \item{value_type-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{test_lag_group-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_end_date-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_days-template}{\link{DESCRIPTION GOES HERE}}
 }
 \value{
-A list containing:
-\item{test_data}{The test dataset with added forecast evaluations.}
-\item{coefs}{Model coefficients from the trained model.}
+A tibble containing forecasts and, when the completed revision value
+is available, evaluation scores.
 }
 \description{
 This function trains a forecast model for a given geographical location

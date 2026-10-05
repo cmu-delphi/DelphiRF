@@ -4,15 +4,30 @@
 \alias{exponentiate_preds}
 \title{Un-log predicted values}
 \usage{
-exponentiate_preds(test_data, taus)
+exponentiate_preds(
+  test_data,
+  taus,
+  value_type = c("count", "fraction"),
+  fraction_input = c("value", "numerator_denominator")
+)
 }
 \arguments{
 \item{test_data}{dataframe with a column containing the prediction results of
 each requested quantile. Each row represents an update with certain
 (reference_date, report_date, location) combination.}
 
+\item{value_type}{Either \code{"count"} or \code{"fraction"}.}
+
+\item{fraction_input}{For fraction data, either \code{"value"} when preprocessing
+received one fraction column or \code{"numerator_denominator"} when it received
+separate numerator and denominator columns. Ignored for counts.}
+
 \item{taus-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
-Un-log predicted values
+Inverts the response transformation used during preprocessing. Counts and
+fractions supplied as one value column use \code{log(value + 1)} and therefore
+require \code{exp(prediction) - 1}. Fractions supplied as numerator and
+denominator columns use \code{log(numerator + 1) - log(denominator + 1)} and
+therefore require \code{exp(prediction)}.
 }

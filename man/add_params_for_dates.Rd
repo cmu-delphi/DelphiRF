@@ -4,7 +4,13 @@
 \alias{add_params_for_dates}
 \title{Add date-related parameters to the dataset}
 \usage{
-add_params_for_dates(df, refd_col, lag_col, temporal_resol = "daily")
+add_params_for_dates(
+  df,
+  refd_col,
+  lag_col,
+  temporal_resol = "daily",
+  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))
+)
 }
 \arguments{
 \item{df}{Data frame containing the date columns.}
@@ -15,6 +21,11 @@ add_params_for_dates(df, refd_col, lag_col, temporal_resol = "daily")
 
 \item{temporal_resol}{A string indicating the temporal resolution ("daily" or "weekly").
 Defaults to "daily".}
+
+\item{onehot_weekdays}{Named or unnamed list of character vectors defining day groups
+for one-hot encoding.  Each group becomes one binary column per date column.
+Names, when present, are used as column prefixes; otherwise day abbreviations are
+concatenated.  Defaults to \code{list(Mon=c("Mon"), Weekends=c("Sat","Sun"))}.}
 }
 \value{
 A modified data frame with additional date-related feature columns.
@@ -25,7 +36,7 @@ including day-of-week and week-of-month effects.
 }
 \details{
 \itemize{
-\item If \code{temporal_resol} is "daily", one-hot encoded day-of-week columns are added
+\item If \code{temporal_resol} is "daily", one-hot encoded day-of-week group columns are added
 for both \code{refd_col} (reference date) and \code{"report_date"}.
 \item One-hot encoded week-of-month columns are added for \code{"report_date"} in all cases.
 }

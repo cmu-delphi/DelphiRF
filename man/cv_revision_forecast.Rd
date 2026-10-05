@@ -18,14 +18,18 @@ cv_revision_forecast(
   lp_solver = LP_SOLVER,
   geo = "ma",
   value_type = "count",
-  model_save_dir = "./receiving",
+  model_save_dir = file.path(tempdir(), "DelphiRF", "models"),
   indicator = "testdata",
   signal = "",
   geo_level = "state",
   signal_suffix = "",
   training_end_date = "",
   training_days = 365,
-  n_folds = 5
+  n_folds = 5,
+  genuine_training = TRUE,
+  genuine_testing = TRUE,
+  model_backend = c("quantreg", "quantgen"),
+  time_limit = NULL
 )
 }
 \arguments{
@@ -49,13 +53,35 @@ cv_revision_forecast(
 
 \item{lag_pad_candidates}{Numeric vector of lag padding values to try.}
 
+\item{model_save_dir}{Directory for model cache files. The default is a
+session temporary directory. Supply an explicit path to keep models after
+the R session ends.}
+
+\item{training_end_date}{End date assigned to the training data. High-level
+forecasting functions use the latest input report date when this is empty.}
+
+\item{training_days}{Number of days assigned to the training target-date
+window. Functions receiving an unfiltered dataset apply this window;
+\code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
+model cache filenames.}
+
 \item{n_folds}{Integer, number of cross-validation folds.}
+
+\item{genuine_training}{Logical; if \code{TRUE}, use only rows whose
+\code{genuine_event} value is \code{TRUE} in each cross-validation training fold.}
+
+\item{genuine_testing}{Logical; if \code{TRUE}, use only rows whose
+\code{genuine_event} value is \code{TRUE} in each validation fold.}
+
+\item{model_backend}{Quantile-regression backend passed to
+\code{\link[=revision_forecast]{revision_forecast()}}.}
+
+\item{time_limit}{Optional solver time limit passed to the \code{quantgen}
+backend.}
 
 \item{train_models-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{make_predictions-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{model_save_dir-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{indicator-template}{\link{DESCRIPTION GOES HERE}}
 
@@ -74,10 +100,6 @@ cv_revision_forecast(
 \item{gamma-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{value_type-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_end_date-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_days-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
 This function performs cross-validation to optimize WIS for forecast revision.

@@ -36,8 +36,8 @@ Reads a parameters file. If the file does not exist, the function will create a 
 A params list should contain the following fields. If not included,
 they will be filled with default values when possible.
 
-params$ref_lag: reference lag, after x days, the update is considered to be
-the response. 60 is a reasonable choice for CHNG outpatient data
+params$ref_lag: target lag used to select the completed revision value.
+60 is a reasonable choice for CHNG outpatient data
 params$input_dir: link to the input data file
 params$test_dates: list of two elements, the first one is the start date and
 the second one is the end date
