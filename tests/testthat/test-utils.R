@@ -40,14 +40,6 @@ test_that("testing number of available issue dates for training", {
   expect_silent(training_days_check(report_date, training_days = training_days))
 })
 
-test_that("testing get the top200 populous counties", {
-  expect_error(
-    get_populous_counties(),
-    "requires the covidcast package",
-    fixed = TRUE
-  )
-})
-
 test_that("testing read parameters", {
   # No input file
   expect_error(read_params(path = "params-test.json", template_path = "params-test.json.template",
