@@ -259,7 +259,8 @@ add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_reso
 #' to be joined after feature-grid filling.
 #'
 #' @param df Raw reporting-triangle data frame.
-#' @param value_col Name of the value column used to identify revisions.
+#' @param value_col Name or names of the value columns used to identify
+#'   revisions. A change in any supplied column identifies a revision.
 #' @param refd_col Name of the reference-date column.
 #' @param lag_col Name of the day-based reporting-lag column.
 #' @param ref_lag Central target lag, in days.
@@ -303,10 +304,14 @@ create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
       g <- g[g$report_date <= as.Date(target_as_of_date), , drop = FALSE]
       if (nrow(g) == 0) return(NULL)
     }
-    values <- g[[value_col]]
-    changed <- c(TRUE, (is.na(values[-1]) != is.na(values[-length(values)])) |
-      (!is.na(values[-1]) & !is.na(values[-length(values)]) &
-         values[-1] != values[-length(values)]))
+    component_changed <- lapply(value_col, function(column) {
+      values <- g[[column]]
+      previous <- values[-length(values)]
+      current <- values[-1]
+      (is.na(current) != is.na(previous)) |
+        (!is.na(current) & !is.na(previous) & current != previous)
+    })
+    changed <- c(TRUE, Reduce(`|`, component_changed))
     candidates <- which(changed & g[[lag_col]] >= lower & g[[lag_col]] <= upper)
     if (length(candidates) > 0) {
       idx <- tail(candidates, 1)
@@ -544,7 +549,7 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   )
 
   target_lookup <- create_target_lookup(
-    df, value_col[1], refd_col, lag_col, ref_lag,
+    df, value_col, refd_col, lag_col, ref_lag,
     target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol,
     target_as_of_date = target_as_of_date
   )

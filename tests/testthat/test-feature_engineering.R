@@ -170,6 +170,23 @@ test_that("create_target_lookup selects latest genuine revision in window", {
   expect_equal(target$target_type, "revision")
 })
 
+test_that("create_target_lookup detects a change in any fraction component", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62),
+    numerator = c(10, 10, 10, 10),
+    denominator = c(100, 100, 200, 200)
+  )
+
+  target <- create_target_lookup(
+    raw, c("numerator", "denominator"), "ref_date", "lag", 60, 1, 2
+  )
+
+  expect_equal(target$target_lag, 61)
+  expect_equal(target$target_date, as.Date("2024-03-02"))
+  expect_equal(target$target_type, "revision")
+})
+
 test_that("create_target_lookup falls back to latest raw value at lower bound", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-01"),
@@ -322,6 +339,27 @@ test_that("data_preprocessing attaches raw-aware target after filling", {
   expect_true(all(result$target_lag == 62))
   expect_true(all(result$target_type == "revision"))
   expect_true(all(result$value_target == 15))
+})
+
+test_that("data_preprocessing uses denominator-only revisions for fraction targets", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62),
+    numerator = c(10, 10, 10, 10),
+    denominator = c(100, 100, 200, 200)
+  )
+
+  result <- data_preprocessing(
+    raw, c("numerator", "denominator"), "ref_date", "lag", 60,
+    suffixes = c("_num", "_denom"), lagged_term_list = c(1, 7),
+    value_type = "fraction", temporal_resol = "daily", smoothed = TRUE,
+    target_lag_lower_tolerance = 1, target_lag_upper_tolerance = 2
+  )
+
+  expect_true(all(result$target_lag == 61))
+  expect_true(all(result$target_date == as.Date("2024-03-02")))
+  expect_true(all(result$target_type == "revision"))
+  expect_equal(unique(result$log_value_target), log(11) - log(201))
 })
 
 

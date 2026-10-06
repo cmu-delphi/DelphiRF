@@ -19,7 +19,8 @@ create_target_lookup(
 \arguments{
 \item{df}{Raw reporting-triangle data frame.}
 
-\item{value_col}{Name of the value column used to identify revisions.}
+\item{value_col}{Name or names of the value columns used to identify
+revisions. A change in any supplied column identifies a revision.}
 
 \item{refd_col}{Name of the reference-date column.}
 
