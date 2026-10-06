@@ -18,7 +18,7 @@ cv_revision_forecast(
   lp_solver = LP_SOLVER,
   geo = "ma",
   value_type = "count",
-  model_save_dir = file.path(tempdir(), "DelphiRF", "models"),
+  model_save_dir = default_model_save_dir(),
   indicator = "testdata",
   signal = "",
   geo_level = "state",
@@ -53,9 +53,11 @@ cv_revision_forecast(
 
 \item{lag_pad_candidates}{Numeric vector of lag padding values to try.}
 
-\item{model_save_dir}{Directory for model cache files. The default is a
-session temporary directory. Supply an explicit path to keep models after
-the R session ends.}
+\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
+models are stored by default in DelphiRF's platform-specific user cache
+directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
+can be reused across R sessions. Older R versions use a session temporary
+directory. Supply an explicit path to use a different location.}
 
 \item{training_end_date}{End date assigned to the training data. High-level
 forecasting functions use the latest input report date when this is empty.}

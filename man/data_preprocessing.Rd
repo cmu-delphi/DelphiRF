@@ -17,7 +17,6 @@ data_preprocessing(
   smoothed = FALSE,
   target_lag_lower_tolerance = 0,
   target_lag_upper_tolerance = 0,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
   target_as_of_date = NULL
 )
 }
@@ -48,9 +47,6 @@ search for genuine target revisions.}
 \item{target_lag_upper_tolerance}{Non-negative days after \code{ref_lag} to
 search for genuine target revisions.}
 
-\item{onehot_weekdays}{Named or unnamed list of weekday groups passed to
-\code{\link[=add_params_for_dates]{add_params_for_dates()}} for daily calendar features.}
-
 \item{target_as_of_date}{Optional date limiting target construction to
 reports available on or before that date.}
 }
@@ -75,5 +71,7 @@ missing-update filling so \code{\link[=DelphiRF]{DelphiRF()}} can independently 
 observed-report filtering in training and testing. Counts and fractions
 supplied as one value column use \code{log(value + 1)}. Fractions supplied as
 numerator and denominator columns use
-\code{log(numerator + 1) - log(denominator + 1)}.
+\code{log(numerator + 1) - log(denominator + 1)}. For daily data, preprocessing
+retains all seven weekday indicators for reference and report dates;
+automatic model construction omits Sunday from each set as the baseline.
 }

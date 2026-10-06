@@ -15,7 +15,7 @@ gamma <- 0.1
 sqrt_max_raw <- 1
 kept_bins <- "sqrty0"
 test_lag_group <- 1
-model_save_dir <- "./cache"
+model_save_dir <- tempfile("delphirf-model-cache-")
 geo <- "pa"
 value_type <- "fraction"
 date_format = "%Y%m%d"
@@ -59,6 +59,34 @@ test_that("testing the generation of model filename prefix", {
   expect_equal(model_file_name, expected)
 
   unlink(file.path(model_save_dir, "chng_outpatient_state"), recursive = TRUE)
+})
+
+test_that("model APIs default to the persistent user cache", {
+  expected_default <- quote(default_model_save_dir())
+  expected_dir <- if (getRversion() >= "4.0.0") {
+    tools::R_user_dir("DelphiRF", "cache")
+  } else {
+    file.path(tempdir(), "DelphiRF", "models")
+  }
+
+  expect_identical(formals(generate_filename)$model_save_dir, expected_default)
+  expect_identical(formals(revision_forecast)$model_save_dir, expected_default)
+  expect_identical(formals(cv_revision_forecast)$model_save_dir, expected_default)
+  expect_identical(formals(DelphiRF)$model_save_dir, expected_default)
+  expect_identical(default_model_save_dir(), expected_dir)
+})
+
+test_that("generating a model filename does not create its cache directory", {
+  cache_dir <- tempfile("delphirf-filename-only-")
+
+  path <- generate_filename(
+    indicator, signal, geo_level, signal_suffix, lambda, gamma,
+    training_end_date = training_end_date,
+    model_save_dir = cache_dir
+  )
+
+  expect_false(dir.exists(cache_dir))
+  expect_true(startsWith(path, cache_dir))
 })
 
 test_that("testing prediction column exponentiation", {

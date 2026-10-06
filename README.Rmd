@@ -58,13 +58,16 @@ and set `model_backend = "quantgen"` when fitting a model.
 - `smoothed`: A logical value (`TRUE`/`FALSE`) indicating whether the value column is alrealdy smoothed (default: FALSE)
 - `target_lag_lower_tolerance` and `target_lag_upper_tolerance`: Optional non-negative windows around `ref_lag` for selecting the completed revision value (default: `0` for both)
 - `target_as_of_date`: An optional last report date used when constructing completed revision values
-- `onehot_weekdays`: Named weekday groups used as calendar predictors (default: Monday and weekends)
 
 The returned data includes `genuine_event`. It is `TRUE` for every report that
 was present in the raw input, including a repeated report whose value did not
 change, and `FALSE` for rows created by grid completion or carry-forward
 filling. This lets training and prediction use observed raw reports while still
 retaining filled rows for feature construction.
+
+For daily data, preprocessing retains all seven weekday indicators for both
+reference and report dates. Automatic model construction uses Monday through
+Saturday and omits Sunday from each set as the baseline category.
 
 For count data and fraction data supplied as one value column, DelphiRF uses
 `log(value + 1)`. For fraction data supplied as numerator and denominator
@@ -188,7 +191,6 @@ The user may optionally specify the following arguments:
 - `gamma`: A **numeric** value representing the weight for the loss function (default: 0.1).  
 - `lag_pad`: A **numeric** value indicating the padding for lag variables (default: 1).  
 - `temporal_resol`: A **string** specifying the temporal resolution of the data, either `"daily"` or `"weekly"` (default: `"daily"`).  
-- `onehot_weekdays`: Named weekday groups used as calendar predictors (default: `list(Mon = "Mon", Weekends = c("Sat", "Sun"))`). To use every weekday separately, pass a named list containing all seven weekday abbreviations; DelphiRF drops the least frequent group as the reference category.
 - `genuine_training`: Use only observed raw reports for training (default: `TRUE`).
 - `genuine_testing`: Generate forecasts only for observed raw reports (default: `TRUE`).
 - `model_backend`: Quantile-regression implementation. `"quantreg"` is the default; `"quantgen"` selects the previous optional implementation.
@@ -202,7 +204,7 @@ The user may optionally specify the following arguments:
 These parameters define how output files will be named:
 - `geo`: A **string** specifying the geographical location code (default: `"ma"`).  
 - `value_type`: A **string** indicating the type of the target variable, either `"count"` or `"fraction"` (default: `"count"`).  
-- `model_save_dir`: Directory for model cache files. By default, DelphiRF uses a session temporary directory that R removes later. Supply an explicit path to keep fitted models after the R session ends.
+- `model_save_dir`: Directory for model cache files. On R 4.0 and later, DelphiRF uses the platform-specific user cache returned by `tools::R_user_dir("DelphiRF", "cache")`, allowing fitted models to be reused across R sessions. Older R versions use a session temporary directory. Supply an explicit path to use a different location.
 - `indicator`: A **string** representing the indicator name for the data (default: `"testdata"`).  
 - `signal`: A **string** specifying the signal name associated with the indicator (default: `""`).  
 - `geo_level`: A **string** indicating the geographical level, such as `"state"` or `"county"` (default: `"state"`).  

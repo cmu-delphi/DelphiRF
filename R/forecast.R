@@ -12,10 +12,6 @@
 #' @param params_list A list of model parameters used for training and prediction.
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
-#' @param onehot_weekdays Named or unnamed weekday groups used as calendar
-#'   predictors. The default adds Monday and weekend indicators. If the groups
-#'   form an exhaustive seven-day partition, the least frequent group is used
-#'   as the reference category.
 #' @param model_backend Quantile-regression backend. `"quantreg"` is the
 #'   default, using standardized predictors and weighted lasso fits.
 #'   `"quantgen"` retains the previous optional solver.
@@ -53,14 +49,13 @@ revision_forecast <- function(train_data, test_data, taus,
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
                               geo="ma", value_type="count",
-                              model_save_dir=file.path(tempdir(), "DelphiRF", "models"),
+                              model_save_dir=default_model_save_dir(),
                               indicator="testdata", signal="",
                               geo_level="state", signal_suffix="",
                               training_end_date="",
                               training_days=365,
                               train_models = TRUE,
                               make_predictions=TRUE,
-                              onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
                               model_backend = c("quantreg", "quantgen"),
                               time_limit = NULL) {
 
@@ -90,7 +85,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, onehot_weekdays)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
   }
 
   if (smoothed_target) {
@@ -290,7 +285,7 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                  lag_pad_candidates = c(0, 1, 2, 3),
                                  lp_solver=LP_SOLVER,
                                  geo="ma", value_type="count",
-                                 model_save_dir=file.path(tempdir(), "DelphiRF", "models"),
+                                 model_save_dir=default_model_save_dir(),
                                  indicator="testdata", signal="",
                                  geo_level="state", signal_suffix="",
                                  training_end_date="",
@@ -405,10 +400,6 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #'   input, including unchanged repeated reports.
 #' @param genuine_testing Logical; if `TRUE`, predict only rows whose
 #'   `genuine_event` value is `TRUE`.
-#' @param onehot_weekdays Named or unnamed weekday groups used as calendar
-#'   predictors. The default adds Monday and weekend indicators. If the groups
-#'   form an exhaustive seven-day partition, the least frequent group is used
-#'   as the reference category.
 #' @param model_backend Quantile-regression backend. `"quantreg"` is the
 #'   default, using standardized predictors and weighted lasso fits.
 #'   `"quantgen"` preserves the previous optional implementation.
@@ -453,14 +444,13 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
                      geo="ma", value_type="count",
-                     model_save_dir=file.path(tempdir(), "DelphiRF", "models"),
+                     model_save_dir=default_model_save_dir(),
                      indicator="testdata", signal="",
                      geo_level="state", signal_suffix="",
                      training_end_date="",
                      training_days=365,
                      train_models = TRUE,
                      make_predictions = TRUE,
-                     onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
                      genuine_training=TRUE,
                      genuine_testing=TRUE,
                      model_backend = c("quantreg", "quantgen"),
@@ -548,7 +538,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       geo_level = geo_level, signal_suffix = signal_suffix,
       training_end_date = as.character(testing_start_date),
       training_days = training_days, train_models = train_models,
-      make_predictions = make_predictions, onehot_weekdays = onehot_weekdays,
+      make_predictions = make_predictions,
       model_backend = model_backend, time_limit = time_limit
     )
 

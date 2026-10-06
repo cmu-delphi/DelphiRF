@@ -19,7 +19,7 @@ DelphiRF(
   lp_solver = LP_SOLVER,
   geo = "ma",
   value_type = "count",
-  model_save_dir = file.path(tempdir(), "DelphiRF", "models"),
+  model_save_dir = default_model_save_dir(),
   indicator = "testdata",
   signal = "",
   geo_level = "state",
@@ -28,7 +28,6 @@ DelphiRF(
   training_days = 365,
   train_models = TRUE,
   make_predictions = TRUE,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
   genuine_training = TRUE,
   genuine_testing = TRUE,
   model_backend = c("quantreg", "quantgen"),
@@ -55,9 +54,11 @@ daily or weekly defaults are selected from \code{temporal_resol}.}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
 
-\item{model_save_dir}{Directory for model cache files. The default is a
-session temporary directory. Supply an explicit path to keep models after
-the R session ends.}
+\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
+models are stored by default in DelphiRF's platform-specific user cache
+directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
+can be reused across R sessions. Older R versions use a session temporary
+directory. Supply an explicit path to use a different location.}
 
 \item{training_end_date}{End date assigned to the training data. High-level
 forecasting functions use the latest input report date when this is empty.}
@@ -66,11 +67,6 @@ forecasting functions use the latest input report date when this is empty.}
 window. Functions receiving an unfiltered dataset apply this window;
 \code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
 model cache filenames.}
-
-\item{onehot_weekdays}{Named or unnamed weekday groups used as calendar
-predictors. The default adds Monday and weekend indicators. If the groups
-form an exhaustive seven-day partition, the least frequent group is used
-as the reference category.}
 
 \item{genuine_training}{Logical; if \code{TRUE}, train only on rows whose
 \code{genuine_event} value is \code{TRUE}. These are reports present in the raw

@@ -7,9 +7,8 @@ test_that("genuine-event filtering defaults are explicit", {
 
   argument_names <- names(defaults)
   expect_identical(
-    tail(argument_names, 5L),
-    c("onehot_weekdays", "genuine_training", "genuine_testing",
-      "model_backend", "time_limit")
+    tail(argument_names, 4L),
+    c("genuine_training", "genuine_testing", "model_backend", "time_limit")
   )
   expect_identical(defaults$model_backend, quote(c("quantreg", "quantgen")))
 })

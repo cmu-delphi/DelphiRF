@@ -4,12 +4,7 @@
 \alias{create_params_list}
 \title{Create Parameters List}
 \usage{
-create_params_list(
-  train_data,
-  lagged_term_list,
-  temporal_resol,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))
-)
+create_params_list(train_data, lagged_term_list, temporal_resol)
 }
 \arguments{
 \item{train_data}{Data frame containing training data, including lag values.}
@@ -22,4 +17,9 @@ create_params_list(
 This function generates a list of parameter names based on the provided training data and lag list.
 It dynamically constructs parameter names using predefined constants and incorporates log lag adjustments
 when multiple lag values exist.
+}
+\details{
+For daily data, all seven weekday indicators remain in the
+preprocessed data, while the model parameter list omits \code{Sun_ref} and
+\code{Sun_issue} to provide identifiable baseline categories.
 }

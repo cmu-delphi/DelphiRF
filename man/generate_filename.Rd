@@ -18,7 +18,7 @@ generate_filename(
   test_lag_group = "",
   tau = "",
   model_mode = TRUE,
-  model_save_dir = file.path(tempdir(), "DelphiRF", "models")
+  model_save_dir = default_model_save_dir()
 )
 }
 \arguments{
@@ -34,9 +34,11 @@ model cache filenames.}
 
 \item{model_mode}{Boolean, indicates whether the file name is for a model.}
 
-\item{model_save_dir}{Directory for model cache files. The default is a
-session temporary directory. Supply an explicit path to keep models after
-the R session ends.}
+\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
+models are stored by default in DelphiRF's platform-specific user cache
+directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
+can be reused across R sessions. Older R versions use a session temporary
+directory. Supply an explicit path to use a different location.}
 
 \item{indicator-template}{\link{DESCRIPTION GOES HERE}}
 

@@ -58,8 +58,6 @@ structured correctly for modeling. Users are required to specify:
     completed revision value (default: `0` for both)
 -   `target_as_of_date`: An optional last report date used when
     constructing completed revision values
--   `onehot_weekdays`: Named weekday groups used as calendar predictors
-    (default: Monday and weekends)
 
 The returned data includes `genuine_event`. It is `TRUE` for every
 report that was present in the raw input, including a repeated report
@@ -67,6 +65,11 @@ whose value did not change, and `FALSE` for rows created by grid
 completion or carry-forward filling. This lets training and prediction
 use observed raw reports while still retaining filled rows for feature
 construction.
+
+For daily data, preprocessing retains all seven weekday indicators for
+both reference and report dates. Automatic model construction uses
+Monday through Saturday and omits Sunday from each set as the baseline
+category.
 
 For count data and fraction data supplied as one value column, DelphiRF
 uses `log(value + 1)`. For fraction data supplied as numerator and
@@ -215,11 +218,6 @@ function (default: 0.1).
 variables (default: 1).  
 - `temporal_resol`: A **string** specifying the temporal resolution of
 the data, either `"daily"` or `"weekly"` (default: `"daily"`).  
-- `onehot_weekdays`: Named weekday groups used as calendar predictors
-(default: `list(Mon = "Mon", Weekends = c("Sat", "Sun"))`). To use every
-weekday separately, pass a named list containing all seven weekday
-abbreviations; DelphiRF drops the least frequent group as the reference
-category.
 - `genuine_training`: Use only observed raw reports for training
 (default: `TRUE`).
 - `genuine_testing`: Generate forecasts only for observed raw reports
@@ -245,9 +243,11 @@ These parameters define how output files will be named: - `geo`: A
 `"ma"`).  
 - `value_type`: A **string** indicating the type of the target variable,
 either `"count"` or `"fraction"` (default: `"count"`).  
-- `model_save_dir`: Directory for model cache files. By default, DelphiRF
-uses a session temporary directory that R removes later. Supply an explicit
-path to keep fitted models after the R session ends.
+- `model_save_dir`: Directory for model cache files. On R 4.0 and later,
+DelphiRF uses the platform-specific user cache returned by
+`tools::R_user_dir("DelphiRF", "cache")`, allowing fitted models to be reused
+across R sessions. Older R versions use a session temporary directory. Supply
+an explicit path to use a different location.
 - `indicator`: A **string** representing the indicator name for the data
 (default: `"testdata"`).  
 - `signal`: A **string** specifying the signal name associated with the

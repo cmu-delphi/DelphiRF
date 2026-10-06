@@ -29,52 +29,6 @@ add_dayofweek <- function(df, time_col, suffix, wd = WEEKDAYS_ABBR) {
 }
 
 
-#' Add grouped day-of-week one-hot columns
-#'
-#' Creates one binary column per group in `onehot_weekdays`. Each group is a
-#' character vector of day abbreviations (from `WEEKDAYS_ABBR`); a row is 1 if
-#' the date falls on any day in the group.  Column names are derived from the
-#' list names when present, otherwise by concatenating the day abbreviations.
-#'
-#' @param df A data frame containing the date column.
-#' @param time_col Name of the date column.
-#' @param suffix Column name suffix (e.g. `"_ref"` or `"_issue"`).
-#' @param onehot_weekdays Named or unnamed list of character vectors, each
-#'   specifying a group of days (e.g. `list(Mon=c("Mon"), Weekends=c("Sat","Sun"))`).
-#' @param drop_least_frequent If `TRUE` (default), omit the least frequent
-#'   group when the supplied groups form an exhaustive seven-day partition,
-#'   avoiding the dummy-variable trap. A non-exhaustive selection such as the
-#'   default Monday/weekend groups is kept in full.
-#'
-#' @return `df` with one additional integer column per group.
-#' @export
-add_grouped_dayofweek <- function(df, time_col, suffix, onehot_weekdays,
-                                  drop_least_frequent = TRUE) {
-  df <- df %>% mutate({{ time_col }} := as.Date(.data[[time_col]]))
-  dayofweek <- WEEKDAYS_ABBR[as.integer(format(df[[time_col]], format = "%u"))]
-  group_names <- if (!is.null(names(onehot_weekdays))) {
-    names(onehot_weekdays)
-  } else {
-    vapply(onehot_weekdays, function(grp) paste0(grp, collapse = ""), character(1))
-  }
-  members <- unlist(onehot_weekdays, use.names = FALSE)
-  exhaustive_partition <- setequal(unique(members), WEEKDAYS_ABBR) &&
-    !anyDuplicated(members)
-  if (isTRUE(drop_least_frequent) && length(onehot_weekdays) > 1L &&
-      exhaustive_partition) {
-    counts <- vapply(onehot_weekdays, function(grp) sum(dayofweek %in% grp, na.rm = TRUE), numeric(1))
-    keep <- seq_along(onehot_weekdays) != which.min(counts)
-    attr(df, "dropped_weekday_group") <- group_names[which.min(counts)]
-    onehot_weekdays <- onehot_weekdays[keep]
-    group_names <- group_names[keep]
-  }
-  for (ii in seq_along(onehot_weekdays)) {
-    df[[paste0(group_names[ii], suffix)]] <- as.integer(dayofweek %in% onehot_weekdays[[ii]])
-  }
-  df
-}
-
-
 #' Add one-hot encoding for week of the month based on issue date
 #'
 #' This function calculates the week of the month for each date in the specified
@@ -430,28 +384,19 @@ add_log_transformed <- function(df, lagged_term_list) {
 #' @param lag_col Column name representing the lag between the reference and issue date.
 #' @param temporal_resol A string indicating the temporal resolution ("daily" or "weekly").
 #'                       Defaults to "daily".
-#' @param onehot_weekdays Named or unnamed list of character vectors defining day groups
-#'   for one-hot encoding.  Each group becomes one binary column per date column.
-#'   Names, when present, are used as column prefixes; otherwise day abbreviations are
-#'   concatenated.  Defaults to `list(Mon=c("Mon"), Weekends=c("Sat","Sun"))`.
-#'
 #' @details
-#' - If `temporal_resol` is "daily", one-hot encoded day-of-week group columns are added
-#'   for both `refd_col` (reference date) and `"report_date"`.
+#' - If `temporal_resol` is "daily", all seven one-hot encoded weekday
+#'   columns are added for both `refd_col` and `"report_date"`.
 #' - One-hot encoded week-of-month columns are added for `"report_date"` in all cases.
 #'
 #' @return A modified data frame with additional date-related feature columns.
 #'
 #' @export
-add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily",
-                                  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
+add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily") {
   df$report_date <- df[[refd_col]] + df[[lag_col]]
   if (temporal_resol == "daily") {
-    # An exhaustive weekday partition drops one data-adaptive reference group
-    # for each date axis. Non-exhaustive contrasts such as Mon/Weekends retain
-    # every requested group because the unlisted weekdays are the baseline.
-    df <- add_grouped_dayofweek(df, refd_col, "_ref", onehot_weekdays)
-    df <- add_grouped_dayofweek(df, "report_date", "_issue", onehot_weekdays)
+    df <- add_dayofweek(df, refd_col, "_ref", WEEKDAYS_ABBR)
+    df <- add_dayofweek(df, "report_date", "_issue", WEEKDAYS_ABBR)
   }
   df <- add_weekofmonth(df, "report_date", WEEK_ISSUES)
   return(as.data.frame(df))
@@ -482,8 +427,6 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'   search for genuine target revisions.
 #' @param target_as_of_date Optional date limiting target construction to
 #'   reports available on or before that date.
-#' @param onehot_weekdays Named or unnamed list of weekday groups passed to
-#'   [add_params_for_dates()] for daily calendar features.
 #' @details The returned data includes a logical `genuine_event` column.
 #'   `TRUE` identifies every report present in the raw triangle, including an
 #'   unchanged repeated report. Rows created by grid completion or
@@ -492,7 +435,9 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'   observed-report filtering in training and testing. Counts and fractions
 #'   supplied as one value column use `log(value + 1)`. Fractions supplied as
 #'   numerator and denominator columns use
-#'   `log(numerator + 1) - log(denominator + 1)`.
+#'   `log(numerator + 1) - log(denominator + 1)`. For daily data, preprocessing
+#'   retains all seven weekday indicators for reference and report dates;
+#'   automatic model construction omits Sunday from each set as the baseline.
 #' @return A tibble containing the prepared reporting triangle and model
 #'   features.
 #'
@@ -505,7 +450,6 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                temporal_resol="daily", smoothed=FALSE,
                                target_lag_lower_tolerance = 0,
                                target_lag_upper_tolerance = 0,
-                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
                                target_as_of_date = NULL) {
   if (value_type == "count") {
     if (length(value_col) > 1) warning("Multiple value column names provided; only the first one will be used.")
@@ -590,7 +534,9 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   }
 
   merged_df$inv_log_lag <- 1/(merged_df$lag + 1)
-  merged_df <- add_params_for_dates(merged_df, "reference_date", "lag", temporal_resol, onehot_weekdays)
+  merged_df <- add_params_for_dates(
+    merged_df, "reference_date", "lag", temporal_resol
+  )
 
   merged_df <- dplyr::left_join(
     merged_df, genuine_event_lookup,

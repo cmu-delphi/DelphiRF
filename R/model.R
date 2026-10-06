@@ -490,7 +490,7 @@ generate_filename <- function(indicator, signal,
                               training_end_date, training_days=365, geo="",
                               value_type = "", test_lag_group="", tau="",
                               model_mode = TRUE,
-                              model_save_dir=file.path(tempdir(), "DelphiRF", "models")) {
+                              model_save_dir=default_model_save_dir()) {
   if (lambda != "") {
     lambda <- str_interp("lambda${lambda}")
   }
@@ -523,7 +523,6 @@ generate_filename <- function(indicator, signal,
                            tau, training_days, lambda, gamma)
 
   foldername <- paste(folder_components[folder_components != ""], collapse="_")
-  create_dir_not_exist(file.path(model_save_dir, foldername))
 
   filename <- paste0(
     # Drop any empty strings.
@@ -543,13 +542,15 @@ generate_filename <- function(indicator, signal,
 #' @param train_data Data frame containing training data, including lag values.
 #' @param lagged_term_list Numeric vector specifying the list of lags to be considered.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
+#' @details For daily data, all seven weekday indicators remain in the
+#'   preprocessed data, while the model parameter list omits `Sun_ref` and
+#'   `Sun_issue` to provide identifiable baseline categories.
 #'
 #' @export
 #'
 #' @importFrom dplyr mutate select
 #'
-create_params_list <- function(train_data, lagged_term_list, temporal_resol,
-                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))) {
+create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
   params_list <- c(
     WEEK_ISSUES[1],
     Y7DAV,
@@ -560,13 +561,11 @@ create_params_list <- function(train_data, lagged_term_list, temporal_resol,
     params_list <- c(params_list, LOG_LAG)
   }
 
-  group_names <- if (!is.null(names(onehot_weekdays))) {
-    names(onehot_weekdays)
-  } else {
-    vapply(onehot_weekdays, function(grp) paste0(grp, collapse = ""), character(1))
-  }
-  weekday_candidates <- c(paste0(group_names, "_ref"), paste0(group_names, "_issue"))
-  weekday_params <- weekday_candidates[weekday_candidates %in% names(train_data)]
+  modeled_weekdays <- setdiff(WEEKDAYS_ABBR, "Sun")
+  weekday_params <- c(
+    paste0(modeled_weekdays, "_ref"),
+    paste0(modeled_weekdays, "_issue")
+  )
 
   if (temporal_resol == "daily") c(params_list, weekday_params) else params_list
 }

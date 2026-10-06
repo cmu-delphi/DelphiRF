@@ -107,6 +107,15 @@ read_params <- function(path = "params.json", template_path = "params.json.templ
   return(params)
 }
 
+# Return a CRAN-compliant, persistent cache directory on supported R versions.
+# Keep the previous session cache as a compatibility fallback for R < 4.0.
+default_model_save_dir <- function() {
+  if (getRversion() >= "4.0.0") {
+    return(tools::R_user_dir("DelphiRF", "cache"))
+  }
+  file.path(tempdir(), "DelphiRF", "models")
+}
+
 #' Create a directory and any missing parent directories
 #'
 #' @param path String specifying a directory to create.
