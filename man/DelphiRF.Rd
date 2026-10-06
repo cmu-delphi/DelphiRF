@@ -19,7 +19,7 @@ DelphiRF(
   lp_solver = LP_SOLVER,
   geo = "ma",
   value_type = "count",
-  model_save_dir = "./receiving",
+  model_save_dir = default_model_save_dir(),
   indicator = "testdata",
   signal = "",
   geo_level = "state",
@@ -27,7 +27,11 @@ DelphiRF(
   training_end_date = "",
   training_days = 365,
   train_models = TRUE,
-  make_predictions = TRUE
+  make_predictions = TRUE,
+  genuine_training = TRUE,
+  genuine_testing = TRUE,
+  model_backend = c("quantreg", "quantgen"),
+  time_limit = NULL
 )
 }
 \arguments{
@@ -37,7 +41,8 @@ DelphiRF(
 
 \item{taus}{A numeric vector of quantiles for probabilistic forecasting.}
 
-\item{test_lag_groups}{A vector of test lag groups to process (default: \code{TEST_LAG_GROUPS}).}
+\item{test_lag_groups}{A vector of test lag groups to process. When \code{NULL},
+daily or weekly defaults are selected from \code{temporal_resol}.}
 
 \item{smoothed_target}{A logical value indicating whether the target variable should be smoothed.}
 
@@ -49,11 +54,37 @@ DelphiRF(
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
 
+\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
+models are stored by default in DelphiRF's platform-specific user cache
+directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
+can be reused across R sessions. Older R versions use a session temporary
+directory. Supply an explicit path to use a different location.}
+
+\item{training_end_date}{End date assigned to the training data. High-level
+forecasting functions use the latest input report date when this is empty.}
+
+\item{training_days}{Number of days assigned to the training target-date
+window. Functions receiving an unfiltered dataset apply this window;
+\code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
+model cache filenames.}
+
+\item{genuine_training}{Logical; if \code{TRUE}, train only on rows whose
+\code{genuine_event} value is \code{TRUE}. These are reports present in the raw
+input, including unchanged repeated reports.}
+
+\item{genuine_testing}{Logical; if \code{TRUE}, predict only rows whose
+\code{genuine_event} value is \code{TRUE}.}
+
+\item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
+default, using standardized predictors and weighted lasso fits.
+\code{"quantgen"} preserves the previous optional implementation.}
+
+\item{time_limit}{Optional solver time limit passed to the \code{quantgen}
+backend.}
+
 \item{train_models-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{make_predictions-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{model_save_dir-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{indicator-template}{\link{DESCRIPTION GOES HERE}}
 
@@ -72,12 +103,16 @@ DelphiRF(
 \item{gamma-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{value_type-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_end_date-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_days-template}{\link{DESCRIPTION GOES HERE}}
+}
+\value{
+A tibble containing the available forecasts across requested lag
+groups.
 }
 \description{
 This function performs a forecasting operation using historical data, applying
 hyper-parameters and lag-based adjustments for different test lag groups.
+}
+\details{
+Lag groups with fewer than ten eligible training rows are skipped
+rather than stopping forecasts for the remaining groups.
 }

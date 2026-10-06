@@ -2,7 +2,7 @@
 % Please edit documentation in R/model.R
 \name{get_prediction}
 \alias{get_prediction}
-\title{Fetch model and use to generate predictions/perform corrections}
+\title{Generate and optionally evaluate predictions from a fitted model}
 \usage{
 get_prediction(
   test_data,
@@ -14,18 +14,23 @@ get_prediction(
 )
 }
 \arguments{
-\item{taus}{vector of numeric quantiles}
+\item{test_data}{Data frame containing model predictors and, when evaluated,
+the response column.}
 
-\item{covariates}{vector of strings for the name of covariates}
+\item{taus}{Numeric vector of quantile levels.}
 
-\item{obj}{pre-trained model}
+\item{covariates}{Character vector naming predictor columns.}
 
-\item{make_evaluation}{Logical}
+\item{response}{Character scalar naming the response column.}
 
-\item{test_data-template}{\link{DESCRIPTION GOES HERE}}
+\item{obj}{A fitted model object supporting \code{\link[stats:predict]{stats::predict()}}.}
 
-\item{response-template}{\link{DESCRIPTION GOES HERE}}
+\item{make_evaluation}{Logical; calculate WIS when \code{TRUE}.}
+}
+\value{
+A tibble containing the input prediction rows, fitted quantiles,
+model metadata, and optionally WIS.
 }
 \description{
-Fetch model and use to generate predictions/perform corrections
+Generate and optionally evaluate predictions from a fitted model
 }

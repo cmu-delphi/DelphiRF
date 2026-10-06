@@ -6,8 +6,8 @@
 #' A params list should contain the following fields. If not included,
 #' they will be filled with default values when possible.
 #'
-#' params$ref_lag: reference lag, after x days, the update is considered to be
-#'     the response. 60 is a reasonable choice for CHNG outpatient data
+#' params$ref_lag: target lag used to select the completed revision value.
+#'     60 is a reasonable choice for CHNG outpatient data
 #' params$input_dir: link to the input data file
 #' params$test_dates: list of two elements, the first one is the start date and
 #'     the second one is the end date
@@ -107,14 +107,30 @@ read_params <- function(path = "params.json", template_path = "params.json.templ
   return(params)
 }
 
-#' Create directory if not already existing
+# Return a CRAN-compliant, persistent cache directory on supported R versions.
+# Keep the previous session cache as a compatibility fallback for R < 4.0.
+default_model_save_dir <- function() {
+  if (getRversion() >= "4.0.0") {
+    return(tools::R_user_dir("DelphiRF", "cache"))
+  }
+  file.path(tempdir(), "DelphiRF", "models")
+}
+
+#' Create a directory and any missing parent directories
 #'
-#' @param path string specifying a directory to create
+#' @param path String specifying a directory to create.
+#' @return `path`, invisibly.
 #'
 #' @export
 create_dir_not_exist <- function(path)
 {
-  if (!dir.exists(path)) { dir.create(path) }
+  if (!dir.exists(path)) {
+    dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  }
+  if (!dir.exists(path)) {
+    stop("Could not create directory: ", path)
+  }
+  invisible(path)
 }
 
 #' Check input data for validity
@@ -196,23 +212,6 @@ training_days_check <- function(report_date, training_days) {
   if (training_days > valid_training_days) {
     warning(sprintf("Only %d days are available at most for training.", valid_training_days))
   }
-}
-
-#' Subset list of counties to those included in the 200 most populous in the US
-#'
-#' @importFrom dplyr select %>% arrange desc pull
-#' @importFrom rlang .data
-#' @importFrom utils head
-get_populous_counties <- function() {
-  return(
-    covidcast::county_census %>%
-      dplyr::select(pop = .data$POPESTIMATE2019, fips = .data$FIPS) %>%
-      # Drop megacounties (states)
-      filter(!endsWith(.data$fips, "000")) %>%
-      arrange(desc(.data$pop)) %>%
-      pull(.data$fips) %>%
-      head(n=200)
-  )
 }
 
 #' Write a message to the console with the current time

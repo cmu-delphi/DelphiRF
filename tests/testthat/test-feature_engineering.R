@@ -102,7 +102,7 @@ test_that("add_7davs correctly computes report_date and 7dav", {
 
 
 
-test_that("add_lagged_terms correctly adds lagged columns for weekly data", {
+test_that("add_lagged_terms correctly adds lagged columns for daily data", {
   # Create sample data
   df <- data.frame(
     ref_date = c(as.Date("2024-01-01"), as.Date("2024-01-01"), as.Date("2024-01-01"),
@@ -113,7 +113,7 @@ test_that("add_lagged_terms correctly adds lagged columns for weekly data", {
     value = 10:15
   )
 
-  # Run function with weekly resolution
+  # Run function with daily resolution
   df_lagged <- add_lagged_terms(df, value_col = "value", refd_col = "ref_date",
                                 lag_col = "lag", lagged_term_list = c(1, 2), temporal_resol = "daily")
 
@@ -122,7 +122,7 @@ test_that("add_lagged_terms correctly adds lagged columns for weekly data", {
   expect_true(all(c("log_delta_value_lag1", "log_delta_value_lag2") %in% colnames(df_lagged)))
 
   # Check if lagged values are correctly assigned
-  expect_equal(df_lagged$value_lag1[5], df_lagged$value_lag2[6])  # 7-week lag should match value from first row
+  expect_equal(df_lagged$value_lag1[5], df_lagged$value_lag2[6])
 })
 
 
@@ -158,6 +158,210 @@ test_that("add_targets correctly adds target columns", {
   expect_equal(unique(df_new[df_new$ref_date == as.Date("2022-01-10"), "value_target"]), NA_real_)
 })
 
+test_that("create_target_lookup selects latest genuine revision in window", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62, 70),
+    value = c(10, 10, 12, 15, 20)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60, 1, 2)
+  expect_equal(target$target_lag, 62)
+  expect_equal(target$target_date, as.Date("2024-03-03"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("create_target_lookup detects a change in any fraction component", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62),
+    numerator = c(10, 10, 10, 10),
+    denominator = c(100, 100, 200, 200)
+  )
+
+  target <- create_target_lookup(
+    raw, c("numerator", "denominator"), "ref_date", "lag", 60, 1, 2
+  )
+
+  expect_equal(target$target_lag, 61)
+  expect_equal(target$target_date, as.Date("2024-03-02"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("create_target_lookup falls back to latest raw value at lower bound", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(40, 55, 59, 70),
+    value = c(8, 10, 10, 20)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60, 1, 2)
+  expect_equal(target$target_lag, 59)
+  expect_equal(target$target_type, "fallback")
+})
+
+test_that("create_target_lookup clamps its upper date to target_as_of_date", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62, 70),
+    value = c(10, 10, 12, 15, 20)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 60, 1, 10, "daily",
+    target_as_of_date = as.Date("2024-03-02")
+  )
+  expect_equal(target$target_lag, 61)
+  expect_equal(target$target_date, as.Date("2024-03-02"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("omitting target_as_of_date preserves the original target behavior", {
+  raw <- data.frame(
+    ref_date = rep(as.Date("2024-01-01"), 4),
+    lag = c(0, 5, 7, 9),
+    value = c(10, 11, 12, 13)
+  )
+
+  legacy_call <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 7, 1, 2, "daily"
+  )
+  explicit_default <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 7, 1, 2, "daily",
+    target_as_of_date = NULL
+  )
+
+  expect_identical(legacy_call, explicit_default)
+})
+
+test_that("target cutoff cannot use a future fallback observation", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(40, 50, 59, 70),
+    value = c(8, 10, 10, 20)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 60, 1, 10, "daily",
+    target_as_of_date = as.Date("2024-02-20")
+  )
+  expect_equal(target$target_lag, 50)
+  expect_equal(target$target_type, "fallback")
+})
+
+test_that("target cutoff omits reference dates with no available observations", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-10"),
+    lag = c(0, 1, 2),
+    value = c(10, 12, 15)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 1, 0, 2, "daily",
+    target_as_of_date = as.Date("2024-01-09")
+  )
+  expect_equal(nrow(target), 0)
+})
+
+test_that("data_preprocessing never attaches a target after its as-of date", {
+  raw <- data.frame(
+    ref_date = rep(as.Date(c("2024-01-01", "2024-01-02")), each = 6),
+    lag = rep(0:5, 2),
+    value = c(10, 10, 11, 12, 13, 14, 20, 20, 21, 22, 23, 24)
+  )
+  cutoff <- as.Date("2024-01-04")
+  result <- data_preprocessing(
+    raw, "value", "ref_date", "lag", 3,
+    lagged_term_list = c(1), smoothed = FALSE,
+    target_lag_upper_tolerance = 3,
+    target_as_of_date = cutoff
+  )
+  targets <- result %>%
+    distinct(reference_date, target_date, target_lag, target_type) %>%
+    filter(!is.na(target_date))
+
+  expect_equal(nrow(targets), 2)
+  expect_true(all(targets$target_date <= cutoff))
+  expect_equal(targets$target_lag, c(3, 2))
+  expect_equal(targets$target_type, c("revision", "fallback"))
+})
+
+test_that("create_target_lookup never selects negative reporting lags", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-10"),
+    lag = c(-7, 5),
+    value = c(5, 8)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 7)
+  expect_equal(target$target_lag, 5)
+  expect_equal(target$target_type, "fallback")
+})
+
+test_that("weekly raw targets retain Friday and keep day-based lags", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-06"),
+    lag = c(60, 62), # Wednesday and Friday in the same epiweek
+    value = c(10, 14)
+  )
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 63, 0, 0, "weekly"
+  )
+  expect_equal(target$target_lag, 63)
+  expect_equal(target$target_date, as.Date("2024-03-09"))
+  expect_equal(target$target_type, "revision")
+})
+
+test_that("create_target_lookup returns a typed empty frame when all lags exceed ref_lag", {
+  # Simulate bulk-loaded historical data: every reference_date has only one
+  # observation with lag >> ref_lag (e.g. loaded months after the fact).
+  # Before the fix, dplyr::bind_rows(NULL, NULL, ...) returned a 0x0 tibble,
+  # causing attach_target_lookup to fail with "reference_date not in y".
+  raw <- data.frame(
+    ref_date = as.Date(c("2020-01-01", "2020-01-02", "2020-01-03")),
+    lag = c(250, 249, 248),  # all >> ref_lag=60; no fallback <= 60 exists
+    value = c(10, 12, 11)
+  )
+  result <- create_target_lookup(raw, "value", "ref_date", "lag", 60)
+  expect_s3_class(result, "data.frame")
+  expect_equal(nrow(result), 0L)
+  expect_true("reference_date" %in% colnames(result))
+  expect_true("target_date"    %in% colnames(result))
+  expect_true("target_lag"     %in% colnames(result))
+  expect_true("target_type"    %in% colnames(result))
+})
+
+test_that("data_preprocessing attaches raw-aware target after filling", {
+  raw <- data.frame(
+    ref_date = rep(as.Date("2024-01-01"), 4),
+    lag = c(50, 59, 61, 62),
+    value = c(10, 10, 12, 15)
+  )
+  result <- data_preprocessing(
+    raw, "value", "ref_date", "lag", 60,
+    lagged_term_list = c(1, 7), temporal_resol = "daily", smoothed = TRUE,
+    target_lag_lower_tolerance = 1, target_lag_upper_tolerance = 2
+  )
+  expect_true(all(result$target_lag == 62))
+  expect_true(all(result$target_type == "revision"))
+  expect_true(all(result$value_target == 15))
+})
+
+test_that("data_preprocessing uses denominator-only revisions for fraction targets", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(50, 59, 61, 62),
+    numerator = c(10, 10, 10, 10),
+    denominator = c(100, 100, 200, 200)
+  )
+
+  result <- data_preprocessing(
+    raw, c("numerator", "denominator"), "ref_date", "lag", 60,
+    suffixes = c("_num", "_denom"), lagged_term_list = c(1, 7),
+    value_type = "fraction", temporal_resol = "daily", smoothed = TRUE,
+    target_lag_lower_tolerance = 1, target_lag_upper_tolerance = 2
+  )
+
+  expect_true(all(result$target_lag == 61))
+  expect_true(all(result$target_date == as.Date("2024-03-02")))
+  expect_true(all(result$target_type == "revision"))
+  expect_equal(unique(result$log_value_target), log(11) - log(201))
+})
+
 
 test_that("add_log_transformed correctly applies log transformation", {
   # Create a test dataframe
@@ -189,57 +393,52 @@ test_that("add_log_transformed correctly applies log transformation", {
 })
 
 
-test_that("add_params_for_dates correctly adds date-related features", {
-  # Create a sample data frame
+test_that("add_params_for_dates keeps all weekday indicators in daily mode", {
   test_df <- data.frame(
-    ref_date = as.Date(c("2022-01-01", "2022-01-05", "2022-01-10", "2022-02-01", "2022-02-15")),
-    lag = c(0, 2, 5, 7, 10)
+    ref_date = seq(as.Date("2024-02-26"), by = "day", length.out = 7L),
+    lag = rep(0L, 7L)
   )
-
-  # Run the function with daily resolution
   df_with_params <- add_params_for_dates(test_df, "ref_date", "lag", "daily")
 
-  # Check that report_date column is correctly created
-  expect_true("report_date" %in% colnames(df_with_params))
-
-  # Verify day-of-week encoding is added for both reference and issue date
-  expect_true(all(paste0(WEEKDAYS_ABBR, "_ref") %in% colnames(df_with_params)))
-  expect_true(all(paste0(WEEKDAYS_ABBR, "_issue") %in% colnames(df_with_params)))
-
-  expect_true(all(c("Weekends_issue", "Weekends_ref") %in% colnames(df_with_params)))
-
-  # Verify that exactly one column per row is 1 for each set of one-hot encoded days
-  expect_true(all(rowSums(df_with_params[, paste0(WEEKDAYS_ABBR, "_ref")]) == 1))
-  expect_true(all(rowSums(df_with_params[, paste0(WEEKDAYS_ABBR, "_issue")]) == 1))
-
-  # Verify week-of-month encoding is added for report_date
+  ref_columns <- paste0(WEEKDAYS_ABBR, "_ref")
+  issue_columns <- paste0(WEEKDAYS_ABBR, "_issue")
+  expect_true(all(ref_columns %in% names(df_with_params)))
+  expect_true(all(issue_columns %in% names(df_with_params)))
+  expect_true(all(rowSums(df_with_params[, ref_columns]) == 1L))
+  expect_true(all(rowSums(df_with_params[, issue_columns]) == 1L))
   expect_true(all(WEEK_ISSUES %in% colnames(df_with_params)))
-
-  # Check that only one week column per row has a value of 1
   expect_true(all(rowSums(df_with_params[, WEEK_ISSUES]) <= 1))
 })
 
+test_that("create_params_list uses six weekday indicators and omits Sunday", {
+  test_df <- data.frame(
+    ref_date = seq(as.Date("2024-02-26"), by = "day", length.out = 14L),
+    lag = rep(0:1, 7L)
+  )
+  result <- add_params_for_dates(test_df, "ref_date", "lag", "daily")
+  params <- create_params_list(
+    result, lagged_term_list = c(1L, 7L), temporal_resol = "daily"
+  )
+
+  modeled_weekdays <- setdiff(WEEKDAYS_ABBR, "Sun")
+  expect_true(all(paste0(modeled_weekdays, "_ref") %in% params))
+  expect_true(all(paste0(modeled_weekdays, "_issue") %in% params))
+  expect_false("Sun_ref" %in% params)
+  expect_false("Sun_issue" %in% params)
+  expect_true(all(c("Sun_ref", "Sun_issue") %in% names(result)))
+})
+
 test_that("add_params_for_dates correctly handles weekly resolution", {
-  # Create a sample data frame
   test_df <- data.frame(
     ref_date = as.Date(c("2022-03-01", "2022-03-08", "2022-03-15")),
     lag = c(0, 7, 14)
   )
-
-  # Run the function with weekly resolution
   df_with_params <- add_params_for_dates(test_df, "ref_date", "lag", "weekly")
 
-  # Check that report_date column is correctly created
   expect_true("report_date" %in% colnames(df_with_params))
-
-  # Verify that day-of-week encoding is NOT added in weekly mode
-  expect_false(any(paste0(WEEKDAYS_ABBR, "_ref") %in% colnames(df_with_params)))
-  expect_false(any(paste0(WEEKDAYS_ABBR, "_issue") %in% colnames(df_with_params)))
-
-  # Verify week-of-month encoding is still added for report_date
+  expect_false(any(paste0(WEEKDAYS_ABBR, "_ref") %in% names(df_with_params)))
+  expect_false(any(paste0(WEEKDAYS_ABBR, "_issue") %in% names(df_with_params)))
   expect_true(all(WEEK_ISSUES %in% colnames(df_with_params)))
-
-  # Check that only one week column per row has a value of 1
   expect_true(all(rowSums(df_with_params[, WEEK_ISSUES]) <= 1))
 })
 
@@ -289,6 +488,7 @@ test_that("data_preprocessing handles multiple value columns correctly", {
   # For fraction data
   result_df <- data_preprocessing(df, value_col = c("cases", "deaths"), suffixes=c("_num", "_denom"),
                                   refd_col = "ref_date", lag_col = "lag", ref_lag = 7, value_type = "fraction")
+  expect_s3_class(result_df, "tbl_df")
   expect_true("value_7dav" %in% colnames(result_df))
   expect_true("value_7dav_num" %in% colnames(result_df))
   expect_true("value_7dav_denom" %in% colnames(result_df))
@@ -296,19 +496,22 @@ test_that("data_preprocessing handles multiple value columns correctly", {
   expect_true("value_target_7dav" %in% colnames(result_df))
   expect_true("log_value_7dav" %in% colnames(result_df))
 
-  expect_true("Weekends_issue" %in% colnames(result_df))
-  expect_true("Weekends_ref" %in% colnames(result_df))
+  expect_true(all(paste0(WEEKDAYS_ABBR, "_issue") %in% names(result_df)))
+  expect_true(all(paste0(WEEKDAYS_ABBR, "_ref") %in% names(result_df)))
 
   expect_true("log_value_7dav_lag1" %in% colnames(result_df))
   expect_true("log_value_7dav_lag7" %in% colnames(result_df))
 
   expect_true("log_delta_value_7dav_lag7" %in% colnames(result_df))
-  expect_true("log_delta_value_7dav_lag7" %in% colnames(result_df))
+  expect_true("log_delta_value_7dav_lag1" %in% colnames(result_df))
 
-  expect_error(data_preprocessing(df, value_col = c("cases", "deaths"), suffixes=c("_num", "_denom"),
-                                  refd_col = "ref_date", lag_col = "lag", ref_lag = 7, value_type = "fraction",
-                                  temporal_resol = "weekly"),
-               "The reference dates do not regularly have a gap of 7 days. Some reference dates will be ignored. Please check your input data.")
+  weekly_result <- data_preprocessing(
+    df, value_col = c("cases", "deaths"), suffixes = c("_num", "_denom"),
+    refd_col = "ref_date", lag_col = "lag", ref_lag = 7,
+    value_type = "fraction", temporal_resol = "weekly"
+  )
+  expect_true(all(weekdays(weekly_result$reference_date) == "Saturday"))
+  expect_true(all(weekly_result$lag %% 7 == 0))
 
   expect_true(max(result_df$lag) < 7)
   expect_true("reference_date" %in% colnames(result_df))
@@ -340,4 +543,24 @@ test_that("Testing add weighted related features", {
                         "value_slope_diff", "value_7dav_diff")
   expect_true(all(expected_columns %in% colnames(result)))
 
+})
+
+
+test_that("data_preprocessing labels genuine events before forward filling", {
+  raw <- data.frame(
+    ref_date = rep(as.Date("2024-01-01"), 3),
+    lag = c(0L, 2L, 3L),
+    value = c(10, 10, 12)
+  )
+
+  result <- data_preprocessing(
+    raw,
+    value_col = "value", refd_col = "ref_date", lag_col = "lag",
+    ref_lag = 4L, lagged_term_list = c(1L, 7L), smoothed = TRUE
+  )
+  result <- result[order(result$lag), ]
+
+  expect_type(result$genuine_event, "logical")
+  expect_equal(result$lag, 0:3)
+  expect_equal(result$genuine_event, c(TRUE, FALSE, TRUE, TRUE))
 })

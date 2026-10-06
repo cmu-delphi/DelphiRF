@@ -1,4 +1,4 @@
-<!-- README.Rmd is used for generating README.Rmd. -->
+<!-- README.Rmd is used for generating README.md. -->
 
 ## DelphiRF: Delphi - Revision Forecast
 
@@ -7,6 +7,10 @@ correct real-time data revisions in public health surveillance. By
 modeling revision dynamics and incorporating all available updates up to
 a given observation date, Delphi-RF generates distributional forecasts
 of finalized surveillance values for both count and fraction-based data.
+
+The preprocessing and forecasting functions return tibbles. They remain
+compatible with data-frame operations and print a compact preview for
+large results.
 
 ### Installation
 
@@ -20,10 +24,12 @@ it with:
     install.packages("devtools")  # Install devtools if not already installed
     devtools::install("path/to/DelphiRF")  # Replace with the actual path
 
-DelphiRF requires the **quantgen** R package and linear programming
-solvers.  
-Follow the installation instructions provided here: [quantgen GitHub
-repository](https://github.com/ryantibs/quantgen).
+The default model backend uses the CRAN **quantreg** package, which is
+installed with DelphiRF. The previous **quantgen** backend and its linear
+programming solvers remain optional. To use that backend, follow the
+installation instructions in the [quantgen GitHub
+repository](https://github.com/ryantibs/quantgen) and set
+`model_backend = "quantgen"` when fitting a model.
 
 ### Data Preprocessing
 
@@ -36,7 +42,7 @@ structured correctly for modeling. Users are required to specify:
 -   `refd_col`: A string indicating the column containing the reference
     dates  
 -   `lag_col`: A string indicating the column containing lag values  
--   `ref_lag`: The reference lag used to align the forecast response
+-   `ref_lag`: The target lag used to select the completed revision value
 -   `suffixes`: A **character vector** specifying suffixes for generated
     value columns (default: `c("")`)
 -   `lagged_term_list`: An optional **list** of lagged terms to include
@@ -47,6 +53,28 @@ structured correctly for modeling. Users are required to specify:
     `"daily"` or “weekly” (default: “daily”)
 -   `smoothed`: A logical value (`TRUE`/`FALSE`) indicating whether the
     value column is alrealdy smoothed (default: FALSE)
+-   `target_lag_lower_tolerance` and `target_lag_upper_tolerance`:
+    Optional non-negative windows around `ref_lag` for selecting the
+    completed revision value (default: `0` for both)
+-   `target_as_of_date`: An optional last report date used when
+    constructing completed revision values
+
+The returned data includes `genuine_event`. It is `TRUE` for every
+report that was present in the raw input, including a repeated report
+whose value did not change, and `FALSE` for rows created by grid
+completion or carry-forward filling. This lets training and prediction
+use observed raw reports while still retaining filled rows for feature
+construction.
+
+For daily data, preprocessing retains all seven weekday indicators for
+both reference and report dates. Automatic model construction uses
+Monday through Saturday and omits Sunday from each set as the baseline
+category.
+
+For count data and fraction data supplied as one value column, DelphiRF
+uses `log(value + 1)`. For fraction data supplied as numerator and
+denominator columns, it uses
+`log(numerator + 1) - log(denominator + 1)`.
 
 For example, ma\_dph is a count-based dataset containing the 7-day
 moving average of daily reported COVID-19 confirmed cases in MA.
@@ -117,7 +145,9 @@ The function takes the entire revision dataset as input and
 automatically divides it into multiple `test_lag_groups`, where each
 group is assumed to have the same revision pattern. For each
 `test_lag_group`, the function trains the model and generates forecasts
-as needed using fixed hyperparameters.
+as needed using fixed hyperparameters. By default, training and
+prediction use only rows marked as observed raw reports by
+`data_preprocessing`.
 
     # Run DelphiRF for forecasting  
     results <- DelphiRF(df, as.Date("2022-06-01"))  
@@ -155,13 +185,13 @@ as needed using fixed hyperparameters.
       filter(report_date == as.Date("2022-06-30")) %>%
       filter(reference_date >= as.Date("2022-06-10"))
 
-    ggplot(visual_part) + geom_line(aes(reference_date, exp(predicted_tau0.5),col="Forecasted"), linetype="longdash") +
-      geom_line(aes(reference_date, exp(log_value_7dav), col="Reported"),linetype="solid") +
-      geom_line(aes(reference_date, exp(log_value_target_7dav), col="Target"),linetype="solid") +
+    ggplot(visual_part) + geom_line(aes(reference_date, exp(predicted_tau0.5) - 1,col="Forecasted"), linetype="longdash") +
+      geom_line(aes(reference_date, exp(log_value_7dav) - 1, col="Reported"),linetype="solid") +
+      geom_line(aes(reference_date, exp(log_value_target_7dav) - 1, col="Target"),linetype="solid") +
       scale_colour_manual(name="",values=c("indianred3","gray", "black"))+
       theme_classic()+
-      geom_ribbon(fill="indianred3",aes(x = reference_date,ymin=exp(predicted_tau0.25),
-                                        ymax=exp(predicted_tau0.75)),alpha=0.3)+
+      geom_ribbon(fill="indianred3",aes(x = reference_date,ymin=exp(predicted_tau0.25) - 1,
+                                        ymax=exp(predicted_tau0.75) - 1),alpha=0.3)+
       xlab("Reference Date") + ylab("Estimated cases") +
       ggtitle("Observed and forecasted number of cases on date 2022-06-30")
 
@@ -171,8 +201,9 @@ as needed using fixed hyperparameters.
 
 The user may optionally specify the following arguments: - `taus`: A
 **numeric vector** of quantiles to be estimated (default: `TAUS`).  
-- `test_lag_groups`: A **list** specifying the lag groups to be tested
-(default: `TEST_LAG_GROUPS`).  
+- `test_lag_groups`: A **vector** specifying the lag groups to be tested.
+When omitted, DelphiRF uses the daily or weekly defaults selected from
+`temporal_resol`.
 - `smoothed_target`: A **logical** value indicating whether the target
 variable is smoothed (`TRUE`) or not (`FALSE`) (default: `TRUE`).  
 - `lagged_term_list`: An **optional list** of lagged terms to include in
@@ -187,8 +218,17 @@ function (default: 0.1).
 variables (default: 1).  
 - `temporal_resol`: A **string** specifying the temporal resolution of
 the data, either `"daily"` or `"weekly"` (default: `"daily"`).  
-- `lp_solver`: A **string** indicating the linear programming solver to
-be used (default: `LP_SOLVER`). - `training_days`: A **numeric** value
+- `genuine_training`: Use only observed raw reports for training
+(default: `TRUE`).
+- `genuine_testing`: Generate forecasts only for observed raw reports
+(default: `TRUE`).
+- `model_backend`: Quantile-regression implementation. `"quantreg"` is
+the default; `"quantgen"` selects the previous optional implementation.
+- `lp_solver`: The linear programming solver used only by the optional
+`quantgen` backend (default: `LP_SOLVER`).
+- `time_limit`: An optional solver time limit used only by the `quantgen`
+backend.
+- `training_days`: A **numeric** value
 indicating the number of days to include in the training period
 (default: `365`).  
 - `train_models`: A **logical** value indicating whether to train models
@@ -203,8 +243,11 @@ These parameters define how output files will be named: - `geo`: A
 `"ma"`).  
 - `value_type`: A **string** indicating the type of the target variable,
 either `"count"` or `"fraction"` (default: `"count"`).  
-- `model_save_dir`: A **string** specifying the directory path where the
-model will be saved (default: `"./receiving"`).  
+- `model_save_dir`: Directory for model cache files. On R 4.0 and later,
+DelphiRF uses the platform-specific user cache returned by
+`tools::R_user_dir("DelphiRF", "cache")`, allowing fitted models to be reused
+across R sessions. Older R versions use a session temporary directory. Supply
+an explicit path to use a different location.
 - `indicator`: A **string** representing the indicator name for the data
 (default: `"testdata"`).  
 - `signal`: A **string** specifying the signal name associated with the
@@ -235,7 +278,7 @@ users must specify `train_data` and `test_data` separately.
       train_data_for_lag1, test_data_for_lag1, TAUS,
       lambda = 0.1, gamma = 0.1,
       train_models = TRUE,
-      make_prediction = TRUE
+      make_predictions = TRUE
     )
 
     # Display the last few rows of the result  
@@ -256,13 +299,13 @@ users must specify `train_data` and `test_data` separately.
 
 Visualize the forecast result:
 
-    ggplot(result) + geom_line(aes(reference_date, exp(predicted_tau0.5),col="Forecasted"), linetype="longdash") +
-      geom_line(aes(reference_date, exp(log_value_7dav), col="Reported"),linetype="solid") +
-      geom_line(aes(reference_date, exp(log_value_target_7dav), col="Target"),linetype="solid") +
+    ggplot(result) + geom_line(aes(reference_date, exp(predicted_tau0.5) - 1,col="Forecasted"), linetype="longdash") +
+      geom_line(aes(reference_date, exp(log_value_7dav) - 1, col="Reported"),linetype="solid") +
+      geom_line(aes(reference_date, exp(log_value_target_7dav) - 1, col="Target"),linetype="solid") +
       scale_colour_manual(name="",values=c("indianred3","gray", "black"))+
       theme_classic()+
-      geom_ribbon(fill="indianred3",aes(x = reference_date,ymin=exp(predicted_tau0.25),
-                                        ymax=exp(predicted_tau0.75)),alpha=0.3)+
+      geom_ribbon(fill="indianred3",aes(x = reference_date,ymin=exp(predicted_tau0.25) - 1,
+                                        ymax=exp(predicted_tau0.75) - 1),alpha=0.3)+
       xlab("Reference Date") + ylab("Estimated cases") +
       ggtitle("Observed and forecasted number of cases at lag 1")
 
@@ -272,8 +315,10 @@ Visualize the forecast result:
 
 The `cv_revision_forecast` function performs cross-validation over a
 grid of hyperparameters for a single `test_lag_group` using pre-filtered
-data. It returns the optimal set of hyperparameters that maximize
-forecast accuracy.
+data. It returns the set of hyperparameters with the lowest mean
+weighted interval score (WIS). WIS is calculated as twice the mean
+quantile pinball loss, matching the definition previously used through
+`evalcast`.
 
     # Perform cross-validation to select optimal hyperparameters  
     hyperparams <- cv_revision_forecast(
@@ -307,7 +352,7 @@ forecast accuracy.
       lambda = hyperparams$best_lambda, 
       gamma = hyperparams$best_gamma,
       train_models = TRUE,
-      make_prediction = TRUE
+      make_predictions = TRUE
     )
 
     # Compute the mean WIS score  

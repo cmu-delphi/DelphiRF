@@ -18,3 +18,8 @@ This function generates a list of parameter names based on the provided training
 It dynamically constructs parameter names using predefined constants and incorporates log lag adjustments
 when multiple lag values exist.
 }
+\details{
+For daily data, all seven weekday indicators remain in the
+preprocessed data, while the model parameter list omits \code{Sun_ref} and
+\code{Sun_issue} to provide identifiable baseline categories.
+}

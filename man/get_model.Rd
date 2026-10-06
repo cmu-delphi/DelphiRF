@@ -15,7 +15,9 @@ get_model(
   lambda,
   gamma,
   lp_solver,
-  train_models
+  train_models,
+  model_backend = c("quantreg", "quantgen"),
+  time_limit = NULL
 )
 }
 \arguments{
@@ -28,6 +30,11 @@ get_model(
 \item{tau}{Quantile to be predicted (between 0 and 1).}
 
 \item{sqrt_max_raw}{Maximum raw value at square root level.}
+
+\item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
+default; \code{"quantgen"} preserves the previous implementation.}
+
+\item{time_limit}{Optional solver time limit for the \code{quantgen} backend.}
 
 \item{gamma-template}{\link{DESCRIPTION GOES HERE}}
 

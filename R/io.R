@@ -65,6 +65,8 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
   components <- strsplit(filepath, "/")[[1]]
   signal_info <- components[length(components)-1]
   file_name <- components[length(components)]
+  output_dir <- file.path(export_dir, signal_info)
+  create_dir_not_exist(output_dir)
 
   if (nrow(test_data) == 0) {
     warning(str_interp("No test data available for ${signal_info}"))
@@ -75,7 +77,7 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
     prediction_col <- colnames(test_data)[grepl("^predicted", colnames(test_data))]
     expected_col <- c("reference_date", "report_date", "lag", "geo_value",
                       "target_date", "wis", prediction_col)
-    write_csv(test_data[expected_col], file.path(export_dir, signal_info, pred_output_file))
+    write_csv(test_data[expected_col], file.path(output_dir, pred_output_file))
   }
 
   if (nrow(coef_data) == 0) {
@@ -83,7 +85,7 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
   } else {
     msg_ts(str_interp("Saving coefficients to disk for ${signal_info}"))
     coef_output_file <- str_interp("coefs_${file_name}")
-    write_csv(coef_data, file.path(export_dir, signal_info, coef_output_file))
+    write_csv(coef_data, file.path(output_dir, coef_output_file))
   }
 }
 

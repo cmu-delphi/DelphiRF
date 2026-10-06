@@ -9,7 +9,10 @@ training_days_check(report_date, training_days)
 \arguments{
 \item{report_date}{contents of input data's \code{report_date} column}
 
-\item{training_days-template}{\link{DESCRIPTION GOES HERE}}
+\item{training_days}{Number of days assigned to the training target-date
+window. Functions receiving an unfiltered dataset apply this window;
+\code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
+model cache filenames.}
 }
 \description{
 Check available training days

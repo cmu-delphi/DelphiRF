@@ -18,13 +18,27 @@ generate_filename(
   test_lag_group = "",
   tau = "",
   model_mode = TRUE,
-  model_save_dir = "./"
+  model_save_dir = default_model_save_dir()
 )
 }
 \arguments{
+\item{training_end_date}{End date assigned to the training data. High-level
+forecasting functions use the latest input report date when this is empty.}
+
+\item{training_days}{Number of days assigned to the training target-date
+window. Functions receiving an unfiltered dataset apply this window;
+\code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
+model cache filenames.}
+
 \item{tau}{Decimal quantile to be predicted. Values must be between 0 and 1.}
 
 \item{model_mode}{Boolean, indicates whether the file name is for a model.}
+
+\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
+models are stored by default in DelphiRF's platform-specific user cache
+directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
+can be reused across R sessions. Older R versions use a session temporary
+directory. Supply an explicit path to use a different location.}
 
 \item{indicator-template}{\link{DESCRIPTION GOES HERE}}
 
@@ -41,10 +55,6 @@ generate_filename(
 \item{value_type-template}{\link{DESCRIPTION GOES HERE}}
 
 \item{test_lag_group-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_end_date-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{training_start_date-template}{\link{DESCRIPTION GOES HERE}}
 }
 \value{
 Path to file containing model object.
