@@ -11,7 +11,9 @@ evaluate(test_data, taus, response)
 each requested quantile. Each row represents an update with certain
 (reference_date, report_date, location) combination.}
 
-\item{taus-template}{\link{DESCRIPTION GOES HERE}}
+\item{taus}{Value supplied for \code{taus}.}
+
+\item{response}{Character scalar naming the observed response column.}
 }
 \description{
 Evaluation of the test results based on WIS score

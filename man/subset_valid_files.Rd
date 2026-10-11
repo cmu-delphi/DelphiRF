@@ -9,9 +9,9 @@ subset_valid_files(files_list, file_type = c("daily", "rollup"), params)
 \arguments{
 \item{files_list}{character vector of input files of a given \code{file_type}}
 
-\item{file_type-template}{\link{DESCRIPTION GOES HERE}}
+\item{file_type}{Value supplied for \code{file_type}.}
 
-\item{params-template}{\link{DESCRIPTION GOES HERE}}
+\item{params}{Value supplied for \code{params}.}
 }
 \description{
 Parse filenames to find included dates. Use different patterns if file

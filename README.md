@@ -309,7 +309,7 @@ Visualize the forecast result:
       xlab("Reference Date") + ylab("Estimated cases") +
       ggtitle("Observed and forecasted number of cases at lag 1")
 
-![](README_files/figure-markdown_strict/revision-forecast%20visual-1.png)
+![](README_files/figure-markdown_strict/revision-forecast-visual-1.png)
 
 ### Cross-Validation for Hyperparameter Tuning
 

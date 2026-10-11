@@ -15,7 +15,7 @@
 #' @export
 add_dayofweek <- function(df, time_col, suffix, wd = WEEKDAYS_ABBR) {
   # Ensure the time column is in Date format
-  df <- df %>% mutate({{ time_col }} := as.Date(.data[[time_col]]))
+  df[[time_col]] <- as.Date(df[[time_col]])
 
   # Convert numeric ISO weekdays to the package's stable abbreviations. This
   # avoids locale-dependent labels and preserves the historical "Thurs" name.
@@ -268,12 +268,12 @@ create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
     changed <- c(TRUE, Reduce(`|`, component_changed))
     candidates <- which(changed & g[[lag_col]] >= lower & g[[lag_col]] <= upper)
     if (length(candidates) > 0) {
-      idx <- tail(candidates, 1)
+      idx <- utils::tail(candidates, 1)
       type <- "revision"
     } else {
       fallback <- which(g[[lag_col]] <= lower)
       if (length(fallback) == 0) return(NULL)
-      idx <- tail(fallback, 1)
+      idx <- utils::tail(fallback, 1)
       type <- "fallback"
     }
     data.frame(
@@ -558,7 +558,6 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
 #' including the difference in days, log slope, and differences in values relative to reference data.
 #'
 #' @param df A dataframe containing the necessary columns for computation.
-#' @param comparison_date A Date object representing the reference date for comparison.
 #' @return A dataframe with additional computed columns for weight-related metrics.
 #' @importFrom dplyr %>% group_by ungroup select rename slice_max mutate left_join
 #' @importFrom rlang .data
@@ -579,10 +578,10 @@ add_weights_related <- function(df) {
     group_by(.data$lag) %>%
     slice_max(.data$report_date, with_ties = FALSE) %>%  # Get the row with the max report_date per lag_col
     ungroup() %>%
-    dplyr::select(.data$lag, .data$log_7dav_slope, .data$log_value_7dav) %>%
+    dplyr::select(dplyr::all_of(c("lag", "log_7dav_slope", "log_value_7dav"))) %>%
     dplyr::rename(
-      ref_slope_value = .data$log_7dav_slope,
-      ref_7dav_value = .data$log_value_7dav
+      ref_slope_value = log_7dav_slope,
+      ref_7dav_value = log_value_7dav
     )
 
   # Join reference values back to combined_df

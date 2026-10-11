@@ -50,15 +50,33 @@ daily or weekly defaults are selected from \code{temporal_resol}.}
 
 \item{params_list}{A list of model parameters for forecasting.}
 
+\item{lambda}{Value supplied for \code{lambda}.}
+
+\item{gamma}{Value supplied for \code{gamma}.}
+
 \item{lag_pad}{A numeric or named list of lag padding values (default: \code{LAG_PAD}).}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
+
+\item{lp_solver}{Value supplied for \code{lp_solver}.}
+
+\item{geo}{Value supplied for \code{geo}.}
+
+\item{value_type}{Value supplied for \code{value_type}.}
 
 \item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
 models are stored by default in DelphiRF's platform-specific user cache
 directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
 can be reused across R sessions. Older R versions use a session temporary
 directory. Supply an explicit path to use a different location.}
+
+\item{indicator}{Value supplied for \code{indicator}.}
+
+\item{signal}{Value supplied for \code{signal}.}
+
+\item{geo_level}{Value supplied for \code{geo_level}.}
+
+\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
 
 \item{training_end_date}{End date assigned to the training data. High-level
 forecasting functions use the latest input report date when this is empty.}
@@ -67,6 +85,10 @@ forecasting functions use the latest input report date when this is empty.}
 window. Functions receiving an unfiltered dataset apply this window;
 \code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
 model cache filenames.}
+
+\item{train_models}{Value supplied for \code{train_models}.}
+
+\item{make_predictions}{Value supplied for \code{make_predictions}.}
 
 \item{genuine_training}{Logical; if \code{TRUE}, train only on rows whose
 \code{genuine_event} value is \code{TRUE}. These are reports present in the raw
@@ -81,28 +103,6 @@ default, using standardized predictors and weighted lasso fits.
 
 \item{time_limit}{Optional solver time limit passed to the \code{quantgen}
 backend.}
-
-\item{train_models-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{make_predictions-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{indicator-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lp_solver-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{geo_level-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{geo-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal_suffix-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lambda-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{gamma-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{value_type-template}{\link{DESCRIPTION GOES HERE}}
 }
 \value{
 A tibble containing the available forecasts across requested lag

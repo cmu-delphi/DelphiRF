@@ -53,11 +53,25 @@ cv_revision_forecast(
 
 \item{lag_pad_candidates}{Numeric vector of lag padding values to try.}
 
+\item{lp_solver}{Value supplied for \code{lp_solver}.}
+
+\item{geo}{Value supplied for \code{geo}.}
+
+\item{value_type}{Value supplied for \code{value_type}.}
+
 \item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
 models are stored by default in DelphiRF's platform-specific user cache
 directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
 can be reused across R sessions. Older R versions use a session temporary
 directory. Supply an explicit path to use a different location.}
+
+\item{indicator}{Value supplied for \code{indicator}.}
+
+\item{signal}{Value supplied for \code{signal}.}
+
+\item{geo_level}{Value supplied for \code{geo_level}.}
+
+\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
 
 \item{training_end_date}{End date assigned to the training data. High-level
 forecasting functions use the latest input report date when this is empty.}
@@ -80,28 +94,6 @@ model cache filenames.}
 
 \item{time_limit}{Optional solver time limit passed to the \code{quantgen}
 backend.}
-
-\item{train_models-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{make_predictions-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{indicator-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lp_solver-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{geo_level-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{geo-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal_suffix-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lambda-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{gamma-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{value_type-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
 This function performs cross-validation to optimize WIS for forecast revision.

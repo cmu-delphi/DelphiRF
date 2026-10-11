@@ -1,2 +1,2 @@
-#' @param gamma-template [DESCRIPTION GOES HERE]
+#' @param gamma Value supplied for `gamma`.
 

@@ -1,2 +1,2 @@
-#' @param geo_level-template [DESCRIPTION GOES HERE]
+#' @param geo_level Value supplied for `geo_level`.
 

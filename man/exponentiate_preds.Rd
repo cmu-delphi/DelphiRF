@@ -16,13 +16,13 @@ exponentiate_preds(
 each requested quantile. Each row represents an update with certain
 (reference_date, report_date, location) combination.}
 
+\item{taus}{Value supplied for \code{taus}.}
+
 \item{value_type}{Either \code{"count"} or \code{"fraction"}.}
 
 \item{fraction_input}{For fraction data, either \code{"value"} when preprocessing
 received one fraction column or \code{"numerator_denominator"} when it received
 separate numerator and denominator columns. Ignored for counts.}
-
-\item{taus-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
 Inverts the response transformation used during preprocessing. Counts and

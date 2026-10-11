@@ -12,6 +12,7 @@
 #' @param params_list A list of model parameters used for training and prediction.
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
+#' @param temporal_resol Character; either `"daily"` or `"weekly"` resolution.
 #' @param model_backend Quantile-regression backend. `"quantreg"` is the
 #'   default, using standardized predictors and weighted lasso fits.
 #'   `"quantgen"` retains the previous optional solver.
@@ -166,7 +167,7 @@ revision_forecast <- function(train_data, test_data, taus,
     test_data <- add_sqrtscale_test(test_data, sqrt_max_raw, kept_bins)
     test_data <- test_data %>%
       drop_na(!!!syms(c(params_list, kept_bins, basic_cols))) %>%
-      select(all_of(c(basic_cols, params_list, kept_bins, response)))
+      select(dplyr::all_of(c(basic_cols, params_list, kept_bins, response)))
     test_data <- get_prediction(test_data, taus, params_list, response, obj,
                                 make_evaluation=TRUE)
     test_data_list <- append(test_data_list, list(test_data))
@@ -256,8 +257,6 @@ validate_genuine_event_options <- function(df, genuine_training,
 #'   [revision_forecast()].
 #' @param time_limit Optional solver time limit passed to the `quantgen`
 #'   backend.
-#' @template train_models-template
-#' @template make_predictions-template
 #' @template model_save_dir-template
 #' @template indicator-template
 #' @template lp_solver-template
@@ -265,8 +264,6 @@ validate_genuine_event_options <- function(df, genuine_training,
 #' @template geo_level-template
 #' @template geo-template
 #' @template signal_suffix-template
-#' @template lambda-template
-#' @template gamma-template
 #' @template value_type-template
 #' @template training_end_date-template
 #' @template training_days-template

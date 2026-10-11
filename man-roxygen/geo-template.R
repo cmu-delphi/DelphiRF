@@ -1,2 +1,2 @@
-#' @param geo-template [DESCRIPTION GOES HERE]
+#' @param geo Value supplied for `geo`.
 

@@ -22,6 +22,18 @@ generate_filename(
 )
 }
 \arguments{
+\item{indicator}{Value supplied for \code{indicator}.}
+
+\item{signal}{Value supplied for \code{signal}.}
+
+\item{geo_level}{Value supplied for \code{geo_level}.}
+
+\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
+
+\item{lambda}{Value supplied for \code{lambda}.}
+
+\item{gamma}{Value supplied for \code{gamma}.}
+
 \item{training_end_date}{End date assigned to the training data. High-level
 forecasting functions use the latest input report date when this is empty.}
 
@@ -29,6 +41,12 @@ forecasting functions use the latest input report date when this is empty.}
 window. Functions receiving an unfiltered dataset apply this window;
 \code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
 model cache filenames.}
+
+\item{geo}{Value supplied for \code{geo}.}
+
+\item{value_type}{Value supplied for \code{value_type}.}
+
+\item{test_lag_group}{Value supplied for \code{test_lag_group}.}
 
 \item{tau}{Decimal quantile to be predicted. Values must be between 0 and 1.}
 
@@ -39,22 +57,6 @@ models are stored by default in DelphiRF's platform-specific user cache
 directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
 can be reused across R sessions. Older R versions use a session temporary
 directory. Supply an explicit path to use a different location.}
-
-\item{indicator-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{geo-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal_suffix-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lambda-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{gamma-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{value_type-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{test_lag_group-template}{\link{DESCRIPTION GOES HERE}}
 }
 \value{
 Path to file containing model object.

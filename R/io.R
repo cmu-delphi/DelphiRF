@@ -30,23 +30,18 @@ fips_to_geovalue <- function(df) {
 
 #' Export test results. Merge all the locations and test lags together for one output file
 #'
-#' @param train_data A data frame containing training data.
 #' @param test_data A data frame containing testing data.
-#' @param response A string specifying the response variable.
-#' @param taus A numeric vector of quantiles for prediction intervals.
-#' @param params_list A list of model parameters used for training and prediction.
-#' @param geo A string specifying the geographical location for forecasting.
-#' @param lp_solver A solver used for linear programming optimization in the model.
+#' @param coef_data A data frame containing fitted model coefficients.
 #' @param lambda A numeric vector specifying regularization parameters.
 #' @param gamma A numeric vector specifying additional model parameters.
 #' @param value_type A string specifying the type of value being forecasted (e.g., "count").
-#' @param model_save_dir A string specifying the directory to save trained models.
 #' @param indicator A string representing the forecasting indicator.
 #' @param signal A string representing the forecast signal.
 #' @param geo_level A string specifying the geographical level (e.g., state, county).
 #' @param signal_suffix A string suffix for the signal name.
 #' @param training_end_date The end date for training data.
-#' @param training_start_date The start date for training data.
+#' @param training_days Number of days represented by the training window.
+#' @param export_dir Directory in which prediction and coefficient files are written.
 #' @export
 #' @importFrom readr write_csv
 #' @importFrom stringr str_interp str_split

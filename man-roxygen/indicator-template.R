@@ -1,2 +1,2 @@
-#' @param indicator-template [DESCRIPTION GOES HERE]
+#' @param indicator Value supplied for `indicator`.
 

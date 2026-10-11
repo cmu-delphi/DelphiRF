@@ -1,2 +1,2 @@
-#' @param lp_solver-template [DESCRIPTION GOES HERE]
+#' @param lp_solver Value supplied for `lp_solver`.
 

@@ -241,7 +241,7 @@ mean(result$wis, na.rm = TRUE)
 ```
 
 Visualize the forecast result:
-```{r revision-forecast visual}
+```{r revision-forecast-visual}
 ggplot(result) + geom_line(aes(reference_date, exp(predicted_tau0.5) - 1,col="Forecasted"), linetype="longdash") +
   geom_line(aes(reference_date, exp(log_value_7dav) - 1, col="Reported"),linetype="solid") +
   geom_line(aes(reference_date, exp(log_value_target_7dav) - 1, col="Target"),linetype="solid") +

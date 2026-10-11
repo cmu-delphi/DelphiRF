@@ -47,6 +47,7 @@ data_filteration <- function(test_lag, data, lag_pad) {
 #'
 #' @param df Data frame containing the data.
 #' @param sqrt_max_raw The maximum value in the dataset, used to determine bin thresholds.
+#' @param rare_thresh Minimum relative frequency required to retain an indicator bin.
 #' @return A data frame with additional binary indicator columns for square root scaling.
 #' @export
 add_sqrtscale <- function(df, sqrt_max_raw, rare_thresh = 0.05) {
@@ -191,6 +192,7 @@ weighted_interval_score <- function(taus, residuals, point_pred) {
 #'    each requested quantile. Each row represents an update with certain
 #'    (reference_date, report_date, location) combination.
 #' @template taus-template
+#' @param response Character scalar naming the observed response column.
 #'
 #' @export
 evaluate <- function(test_data, taus, response) {
@@ -254,6 +256,7 @@ exponentiate_preds <- function(
 #' @param response Name of the response variable.
 #' @param tau Quantile to be predicted (between 0 and 1).
 #' @param sqrt_max_raw Maximum raw value at square root level.
+#' @param kept_bins Character vector naming retained square-root scale bins.
 #' @template gamma-template
 #' @template lambda-template
 #' @template covariates-template
@@ -440,6 +443,12 @@ fit_quantreg_lasso <- function(x, y, taus, lambda = 0.1,
   )
 }
 
+#' Predict using a fitted DelphiRF quantile-lasso model
+#'
+#' @param object A fitted `delphirf_quantreg_lasso` object.
+#' @param newx A matrix or data frame of predictor values.
+#' @param ... Additional arguments, currently ignored.
+#' @return A numeric vector or matrix of quantile predictions.
 #' @export
 predict.delphirf_quantreg_lasso <- function(object, newx, ...) {
   newx <- as.matrix(newx)
@@ -455,6 +464,11 @@ predict.delphirf_quantreg_lasso <- function(object, newx, ...) {
   if (length(object$taus) == 1L) as.numeric(prediction) else prediction
 }
 
+#' Extract coefficients from a fitted DelphiRF quantile-lasso model
+#'
+#' @param object A fitted `delphirf_quantreg_lasso` object.
+#' @param ... Additional arguments, currently ignored.
+#' @return A named coefficient vector or coefficient matrix.
 #' @export
 coef.delphirf_quantreg_lasso <- function(object, ...) {
   if (length(object$taus) == 1L) {
@@ -469,6 +483,7 @@ coef.delphirf_quantreg_lasso <- function(object, ...) {
 #'
 #' @template indicator-template
 #' @template signal-template
+#' @template geo_level-template
 #' @template geo-template
 #' @template signal_suffix-template
 #' @template lambda-template

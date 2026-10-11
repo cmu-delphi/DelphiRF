@@ -25,26 +25,28 @@ get_model(
 
 \item{train_data}{Data frame containing the training data.}
 
+\item{covariates}{Value supplied for \code{covariates}.}
+
 \item{response}{Name of the response variable.}
 
 \item{tau}{Quantile to be predicted (between 0 and 1).}
 
 \item{sqrt_max_raw}{Maximum raw value at square root level.}
 
+\item{kept_bins}{Character vector naming retained square-root scale bins.}
+
+\item{lambda}{Value supplied for \code{lambda}.}
+
+\item{gamma}{Value supplied for \code{gamma}.}
+
+\item{lp_solver}{Value supplied for \code{lp_solver}.}
+
+\item{train_models}{Value supplied for \code{train_models}.}
+
 \item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
 default; \code{"quantgen"} preserves the previous implementation.}
 
 \item{time_limit}{Optional solver time limit for the \code{quantgen} backend.}
-
-\item{gamma-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lambda-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{covariates-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{lp_solver-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{train_models-template}{\link{DESCRIPTION GOES HERE}}
 }
 \value{
 The trained or loaded model object.

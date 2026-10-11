@@ -7,14 +7,14 @@
 get_files_list(indicator, signal, params, sub_dir)
 }
 \arguments{
+\item{indicator}{Value supplied for \code{indicator}.}
+
+\item{signal}{Value supplied for \code{signal}.}
+
+\item{params}{Value supplied for \code{params}.}
+
 \item{sub_dir}{string specifying the indicator-specific directory within
 the general input directory \code{params$input_dir}}
-
-\item{indicator-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{params-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
 List valid input files.
