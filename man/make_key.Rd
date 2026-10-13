@@ -7,9 +7,9 @@
 make_key(value_type, signal_suffix)
 }
 \arguments{
-\item{value_type-template}{\link{DESCRIPTION GOES HERE}}
+\item{value_type}{Value supplied for \code{value_type}.}
 
-\item{signal_suffix-template}{\link{DESCRIPTION GOES HERE}}
+\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
 }
 \description{
 If \code{signal_suffix} is not an empty string, concatenate the two arguments.

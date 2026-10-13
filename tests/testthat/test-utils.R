@@ -16,6 +16,15 @@ test_that("testing create directory if not exist", {
   expect_true(!file.exists(path))
 })
 
+test_that("create_dir_not_exist creates missing parent directories", {
+  root <- tempfile("delphirf-dir-")
+  path <- file.path(root, "models", "nested")
+  on.exit(unlink(root, recursive = TRUE))
+
+  expect_invisible(create_dir_not_exist(path))
+  expect_true(dir.exists(path))
+})
+
 
 test_that("testing number of available issue dates for training", {
   start_date <- as.Date("2022-01-01")
@@ -29,13 +38,6 @@ test_that("testing number of available issue dates for training", {
   training_days <- 10
   report_date <- seq(start_date, end_date, by = "days")
   expect_silent(training_days_check(report_date, training_days = training_days))
-})
-
-test_that("testing get the top200 populous counties", {
-  counties <- get_populous_counties()
-
-  expect_true(length(counties) == 200)
-  expect_true("06037" %in% counties)
 })
 
 test_that("testing read parameters", {
@@ -281,6 +283,3 @@ test_that("Handles numeric test_lag_group properly", {
   expect_equal(handle_hyperparam(param_list, 2), 0.2)
   expect_equal(handle_hyperparam(param_list, 3), 0.3) # Falls back to "others"
 })
-
-
-

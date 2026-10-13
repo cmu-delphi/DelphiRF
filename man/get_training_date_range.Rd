@@ -7,7 +7,7 @@
 get_training_date_range(params)
 }
 \arguments{
-\item{params-template}{\link{DESCRIPTION GOES HERE}}
+\item{params}{Value supplied for \code{params}.}
 }
 \description{
 Calculate training start and end dates based on user settings.

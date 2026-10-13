@@ -47,11 +47,11 @@ for (nn in N_TRAIN) {
   for (rr in seq_len(N_REPS)) {
     solver_results <- rbind(solver_results, data.frame(
       n_train = nn, backend = "quantreg", taus = "single",  rep = rr,
-      elapsed_sec = time_fit(\() fit_quantile_lasso(dat$x, dat$y, tau = TAU_SINGLE, lambda = LAMBDA))
+      elapsed_sec = time_fit(\() fit_quantreg_lasso(dat$x, dat$y, taus = TAU_SINGLE, lambda = LAMBDA))
     ))
     solver_results <- rbind(solver_results, data.frame(
       n_train = nn, backend = "quantreg", taus = "all9", rep = rr,
-      elapsed_sec = time_fit(\() fit_quantile_lasso(dat$x, dat$y, tau = TAUS_PROD, lambda = LAMBDA))
+      elapsed_sec = time_fit(\() fit_quantreg_lasso(dat$x, dat$y, taus = TAUS_PROD, lambda = LAMBDA))
     ))
   }
 
@@ -210,7 +210,7 @@ if (has_quantgen) {
     dat_tr <- make_data(nn)
     x_te   <- make_data(N_TEST)$x
 
-    fit_qr <- fit_quantile_lasso(dat_tr$x, dat_tr$y, tau = TAUS_PROD, lambda = LAMBDA)
+    fit_qr <- fit_quantreg_lasso(dat_tr$x, dat_tr$y, taus = TAUS_PROD, lambda = LAMBDA)
     fit_qg <- quantgen::quantile_lasso(dat_tr$x, dat_tr$y, tau = TAUS_PROD, lambda = LAMBDA,
                                        standardize = TRUE, intercept = TRUE, lp_solver = "glpk")
 

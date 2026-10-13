@@ -12,13 +12,15 @@ create_target_lookup(
   ref_lag,
   lower_tolerance = 0,
   upper_tolerance = 0,
-  temporal_resol = "daily"
+  temporal_resol = "daily",
+  target_as_of_date = NULL
 )
 }
 \arguments{
 \item{df}{Raw reporting-triangle data frame.}
 
-\item{value_col}{Name of the value column used to identify revisions.}
+\item{value_col}{Name or names of the value columns used to identify
+revisions. A change in any supplied column identifies a revision.}
 
 \item{refd_col}{Name of the reference-date column.}
 
@@ -33,6 +35,10 @@ genuine-revision search window.}
 genuine-revision search window.}
 
 \item{temporal_resol}{Either \code{"daily"} or \code{"weekly"}.}
+
+\item{target_as_of_date}{Optional date limiting target selection to reports
+available on or before that date. The effective upper target-window date
+is the earlier of this date and \code{reference_date + ref_lag + upper_tolerance}.}
 }
 \value{
 A compact data frame with at most one target per reference date.

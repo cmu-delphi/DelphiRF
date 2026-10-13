@@ -7,9 +7,9 @@
 params_element_exists_and_valid(params, key)
 }
 \arguments{
-\item{key}{string indicating name of element within \code{params} to check}
+\item{params}{Value supplied for \code{params}.}
 
-\item{params-template}{\link{DESCRIPTION GOES HERE}}
+\item{key}{string indicating name of element within \code{params} to check}
 }
 \description{
 Check if an element in params exists and is not missing

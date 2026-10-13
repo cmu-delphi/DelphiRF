@@ -18,10 +18,6 @@ fake_df <- data.frame(reference_date = c(as.Date("2022-01-03"), as.Date("2022-01
                                      as.Date("2022-01-05")),
                       lag = c(0, 1, 3, 7, 0, 6, 7, 0, 7),
                       Counts_Products_Denom=c(100, 200, 500, 1000, 0, 200, 220, 50, 300))
-wd <- c("Mon", "Tue", "Wed", "Thurs", "Fri", "Sat")
-wm <- c("W1_issue", "W2_issue", "W3_issue", "W4_issue")
-
-
 test_that("testing rows filling for missing lags", {
   # Make sure all reference date have enough rows for updates
   df_new <- fill_rows(fake_df, refd_col, lag_col, min_refd, max_refd, ref_lag)
@@ -176,4 +172,3 @@ test_that("testing the calculation of week of a month", {
   expect_equal(get_weekofmonth(as.Date("2022-10-30")), 1)
 
 })
-

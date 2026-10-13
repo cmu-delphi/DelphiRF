@@ -1,2 +1,2 @@
-#' @param refd_col-template [DESCRIPTION GOES HERE]
+#' @param refd_col Value supplied for `refd_col`.
 

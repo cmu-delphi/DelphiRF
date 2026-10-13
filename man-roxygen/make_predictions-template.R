@@ -1,2 +1,2 @@
-#' @param make_predictions-template [DESCRIPTION GOES HERE]
+#' @param make_predictions Value supplied for `make_predictions`.
 

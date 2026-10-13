@@ -8,7 +8,6 @@ create_params_list(
   train_data,
   lagged_term_list,
   temporal_resol,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
   extra_params = NULL
 )
 }
@@ -18,9 +17,17 @@ create_params_list(
 \item{lagged_term_list}{Numeric vector specifying the list of lags to be considered.}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
+
+\item{extra_params}{Optional character vector of additional predictor
+columns, e.g. from \code{\link[=aux_feature_names]{aux_feature_names()}}.}
 }
 \description{
 This function generates a list of parameter names based on the provided training data and lag list.
 It dynamically constructs parameter names using predefined constants and incorporates log lag adjustments
 when multiple lag values exist.
+}
+\details{
+For daily data, all seven weekday indicators remain in the
+preprocessed data, while the model parameter list omits \code{Sun_ref} and
+\code{Sun_issue} to provide identifiable baseline categories.
 }

@@ -47,6 +47,7 @@ data_filteration <- function(test_lag, data, lag_pad) {
 #'
 #' @param df Data frame containing the data.
 #' @param sqrt_max_raw The maximum value in the dataset, used to determine bin thresholds.
+#' @param rare_thresh Minimum relative frequency required to retain an indicator bin.
 #' @return A data frame with additional binary indicator columns for square root scaling.
 #' @export
 add_sqrtscale <- function(df, sqrt_max_raw, rare_thresh = 0.05) {
@@ -87,20 +88,38 @@ add_sqrtscale_test <- function(df, sqrt_max_raw, kept_bins) {
 }
 
 
-#' Fetch model and use to generate predictions/perform corrections
+#' Rearrange quantile predictions to prevent crossing
 #'
-#' @param taus vector of numeric quantiles
-#' @param covariates vector of strings for the name of covariates
-#' @param make_evaluation Logical
-#' @param obj pre-trained model
+#' Sorts each row of a prediction matrix while retaining the same fitted values.
 #'
-#' @template test_data-template
-#' @template response-template
-#'
-#' @importFrom stats predict coef
-#' @importFrom stringr str_interp
+#' @param predictions Numeric matrix with rows as observations and columns as
+#'   ordered quantile levels.
+#' @return A numeric matrix whose rows are nondecreasing.
+#' @export
+rearrange_quantile_predictions <- function(predictions) {
+  predictions <- as.matrix(predictions)
+  if (!is.numeric(predictions)) {
+    stop("predictions must be numeric.")
+  }
+  if (ncol(predictions) <= 1L || nrow(predictions) == 0L) return(predictions)
+  # Increasing rearrangement is the row-wise empirical quantile function.  It
+  # preserves the multiset of fitted values while enforcing Q(tau_j) <=
+  # Q(tau_k) whenever tau_j < tau_k.
+  t(apply(predictions, 1L, sort, na.last = TRUE))
+}
 
+#' Generate and optionally evaluate predictions from a fitted model
 #'
+#' @param test_data Data frame containing model predictors and, when evaluated,
+#'   the response column.
+#' @param taus Numeric vector of quantile levels.
+#' @param covariates Character vector naming predictor columns.
+#' @param response Character scalar naming the response column.
+#' @param obj A fitted model object supporting [stats::predict()].
+#' @param make_evaluation Logical; calculate WIS when `TRUE`.
+#' @return A tibble containing the input prediction rows, fitted quantiles,
+#'   model metadata, and optionally WIS.
+#' @importFrom stats predict coef
 #' @export
 get_prediction <- function(test_data, taus, covariates, response, obj,
                            make_evaluation = TRUE) {
@@ -113,6 +132,11 @@ get_prediction <- function(test_data, taus, covariates, response, obj,
   # Generate predictions
   y_hat_all <- predict(obj, newx = as.matrix(test_data[covariates]))
   y_hat_all <- matrix(as.numeric(y_hat_all), nrow= dim(test_data)[1])
+  if (length(taus) > 1L) {
+    tau_order <- order(taus)
+    ordered_predictions <- rearrange_quantile_predictions(y_hat_all[, tau_order, drop = FALSE])
+    y_hat_all[, tau_order] <- ordered_predictions
+  }
   test_data[paste0("predicted_tau", as.character(taus))] = y_hat_all #+ test_data[["log_value_7dav"]]
 
   # Perform evaluation if requested
@@ -138,8 +162,9 @@ get_prediction <- function(test_data, taus, covariates, response, obj,
   # Add metadata columns to test data
   test_data$gamma <- attr(obj, "gamma")
   test_data$lambda <- attr(obj, "lambda")
+  test_data$model_backend <- attr(obj, "model_backend")
 
-  return (as.data.frame(test_data))
+  return(tibble::as_tibble(test_data))
 }
 
 #' Weighted interval score for a single observation
@@ -151,8 +176,14 @@ get_prediction <- function(test_data, taus, covariates, response, obj,
 #' @param point_pred Unused; kept for interface compatibility.
 #' @keywords internal
 weighted_interval_score <- function(taus, residuals, point_pred) {
-  alpha <- 2 * pmin(taus, 1 - taus)
-  mean(alpha * (abs(residuals) + (residuals) * (2 * (taus >= 0.5) - 1)))
+  # Twice the mean pinball loss.  In particular, when `taus = 0.5`,
+  # this reduces exactly to absolute error and is symmetric in the sign of
+  # the residual.  This matches evalcast::weighted_interval_score(), which
+  # was used to produce the released paper results.
+  mean(2 * pmax(
+    taus * (-residuals),
+    (1 - taus) * residuals
+  ), na.rm = TRUE)
 }
 
 #' Evaluation of the test results based on WIS score
@@ -161,6 +192,7 @@ weighted_interval_score <- function(taus, residuals, point_pred) {
 #'    each requested quantile. Each row represents an update with certain
 #'    (reference_date, report_date, location) combination.
 #' @template taus-template
+#' @param response Character scalar naming the observed response column.
 #'
 #' @export
 evaluate <- function(test_data, taus, response) {
@@ -178,22 +210,36 @@ evaluate <- function(test_data, taus, response) {
 
 #' Un-log predicted values
 #'
-#' Inverts the log(x+1) forward transform applied during preprocessing.
-#' DelphiRF returns predictions in log(x+1)-scale; callers are responsible
-#' for applying this back-transform. This function is not called internally.
+#' Inverts the response transformation used during preprocessing. Counts and
+#' fractions supplied as one value column use `log(value + 1)` and therefore
+#' require `exp(prediction) - 1`. Fractions supplied as numerator and
+#' denominator columns use `log(numerator + 1) - log(denominator + 1)` and
+#' therefore require `exp(prediction)`.
 #'
 #' @param test_data dataframe with a column containing the prediction results of
 #'    each requested quantile. Each row represents an update with certain
 #'    (reference_date, report_date, location) combination.
 #' @template taus-template
+#' @param value_type Either `"count"` or `"fraction"`.
+#' @param fraction_input For fraction data, either `"value"` when preprocessing
+#'   received one fraction column or `"numerator_denominator"` when it received
+#'   separate numerator and denominator columns. Ignored for counts.
 #'
 #' @importFrom dplyr bind_cols select starts_with
-exponentiate_preds <- function(test_data, taus) {
+exponentiate_preds <- function(
+    test_data, taus, value_type = c("count", "fraction"),
+    fraction_input = c("value", "numerator_denominator")) {
+  value_type <- match.arg(value_type)
+  fraction_input <- match.arg(fraction_input)
   pred_cols <- paste0("predicted_tau", taus)
+  predictions <- exp(test_data[, pred_cols])
+  if (value_type == "count" || fraction_input == "value") {
+    predictions <- predictions - 1
+  }
 
   test_data <- bind_cols(
     select(test_data, -starts_with("predicted")),
-    exp(test_data[, pred_cols]) - 1
+    predictions
   )
 
   return(test_data)
@@ -209,86 +255,25 @@ exponentiate_preds <- function(test_data, taus) {
 #' @param response Name of the response variable.
 #' @param tau Quantile to be predicted (between 0 and 1).
 #' @param sqrt_max_raw Maximum raw value at square root level.
+#' @param kept_bins Character vector naming retained square-root scale bins.
 #' @template gamma-template
 #' @template lambda-template
 #' @template covariates-template
 #' @template lp_solver-template
 #' @template train_models-template
+#' @param model_backend Quantile-regression backend. `"quantreg"` is the
+#'   default; `"quantgen"` preserves the previous implementation.
+#' @param time_limit Optional solver time limit for the `quantgen` backend.
 
 #' @return The trained or loaded model object.
 #'
 #' @importFrom stringr str_interp
-#' @importFrom quantreg rq.fit.lasso
-#' @importFrom stats sd
-fit_quantile_lasso <- function(x, y, tau, lambda, standardize = TRUE,
-                               intercept = TRUE, weights = NULL,
-                               lp_solver = "glpk") {
-  if (!is.null(weights)) {
-    if (!requireNamespace("quantgen", quietly = TRUE)) {
-      stop("observation weights require quantgen (rq.fit.lasso does not support them); install with remotes::install_github('ryantibs/quantgen/quantgen')")
-    }
-    lasso_args <- list(x, y, tau = tau, lambda = lambda,
-                       standardize = standardize, intercept = intercept,
-                       lp_solver = lp_solver, weights = weights)
-    return(do.call(quantgen::quantile_lasso, lasso_args))
-  }
-
-  col_means <- colMeans(x)
-  col_sds <- apply(x, 2, sd)
-  col_sds[col_sds == 0] <- 1
-
-  if (standardize) {
-    x <- scale(x, center = col_means, scale = col_sds)
-  } else {
-    col_means <- rep(0, ncol(x))
-    col_sds <- rep(1, ncol(x))
-  }
-
-  if (intercept) {
-    x_fit <- cbind(1, x)
-    lambda_vec <- c(0, rep(lambda, ncol(x)))
-  } else {
-    x_fit <- x
-    lambda_vec <- rep(lambda, ncol(x))
-  }
-
-  # rq.fit.lasso only accepts scalar tau; loop over a vector
-  coef_list <- lapply(tau, function(tt) {
-    rq.fit.lasso(x_fit, y, tau = tt, lambda = lambda_vec)$coefficients
-  })
-
-  structure(
-    list(
-      coef_list = coef_list,
-      col_means = col_means,
-      col_sds = col_sds,
-      intercept = intercept,
-      standardize = standardize,
-      tau = tau,
-      lambda = lambda
-    ),
-    class = "rq_lasso_fit"
-  )
-}
-
-#' @export
-#' @method predict rq_lasso_fit
-predict.rq_lasso_fit <- function(object, newx, ...) {
-  if (object$standardize) {
-    newx <- scale(newx, center = object$col_means, scale = object$col_sds)
-  }
-  if (object$intercept) {
-    newx <- cbind(1, newx)
-  }
-  # Return n x length(tau) matrix, matching quantgen::quantile_lasso predict output
-  coef_mat <- do.call(cbind, object$coef_list)
-  newx %*% coef_mat
-}
-
 get_model <- function(model_path, train_data, covariates, response, tau,
                       sqrt_max_raw, kept_bins,
-                      lambda, gamma, lp_solver, train_models, time_limit = NULL,
-                      backend = "quantreg") {
+                      lambda, gamma, lp_solver, train_models,
+                      model_backend = c("quantreg", "quantgen"),
+                      time_limit = NULL) {
+  model_backend <- match.arg(model_backend)
   if (train_models || !file.exists(model_path)) {
     if (!train_models && !file.exists(model_path)) {
       warning(str_interp("user requested use of cached model but file ${model_path} does not exist; training new model"))
@@ -296,40 +281,42 @@ get_model <- function(model_path, train_data, covariates, response, tau,
     # Quantile regression
     vec_7dav <- train_data[["value_7dav_diff"]]
     vec_slope <- train_data[["value_slope_diff"]]
-    if (is.null(vec_7dav) && is.null(vec_slope)) {
-      weights <- NULL
-    } else {
-      normalized_7dav_diff <- if (is.null(vec_7dav)) 1 else (vec_7dav - min(vec_7dav)) / (max(vec_7dav) - min(vec_7dav))
-      normalized_slope_diff <- if (is.null(vec_slope)) 1 else (vec_slope - min(vec_slope)) / (max(vec_slope) - min(vec_slope))
-      weights <- exp(-gamma * normalized_7dav_diff * normalized_slope_diff)
+    normalize_difference <- function(x) {
+      span <- max(x) - min(x)
+      if (!is.finite(span) || span <= 0) return(rep(0, length(x)))
+      (x - min(x)) / span
     }
-
-    if (backend == "quantreg") {
-      obj <- fit_quantile_lasso(
-        as.matrix(train_data[covariates]),
-        train_data[[response]],
-        tau = tau,
-        lambda = lambda,
-        standardize = TRUE,
-        intercept = TRUE,
-        weights = weights,
-        lp_solver = lp_solver
-      )
-    } else if (backend == "quantgen") {
-      if (!requireNamespace("quantgen", quietly = TRUE)) {
-        stop("quantgen package required for backend='quantgen'; install with remotes::install_github('ryantibs/quantgen/quantgen')")
-      }
-      lasso_args <- list(
-        as.matrix(train_data[covariates]),
-        train_data[[response]],
-        tau = tau,
-        lambda = lambda, standardize = TRUE, lp_solver = lp_solver, intercept = TRUE,
-        weights = weights
-      )
-      if (!is.null(time_limit)) lasso_args$time_limit <- time_limit
-      obj <- do.call(quantgen::quantile_lasso, lasso_args)
+    if (!is.null(vec_7dav) && !is.null(vec_slope)) {
+      normalized_7dav_diff <- normalize_difference(vec_7dav)
+      normalized_slope_diff <- normalize_difference(vec_slope)
+      weights <- exp(-gamma * normalized_7dav_diff * normalized_slope_diff)
+    } else if (!is.null(vec_7dav)) {
+      normalized_7dav_diff <- normalize_difference(vec_7dav)
+      weights <- exp(-gamma * normalized_7dav_diff)
+    } else if (!is.null(vec_slope)) {
+      normalized_slope_diff <- normalize_difference(vec_slope)
+      weights <- exp(-gamma * normalized_slope_diff)
     } else {
-      stop(str_interp("unknown backend '${backend}'; must be 'quantreg' or 'quantgen'"))
+      weights <- NULL
+    }
+    if (model_backend == "quantreg") {
+      obj <- fit_quantreg_lasso(
+        as.matrix(train_data[covariates]), train_data[[response]],
+        taus = tau, lambda = lambda, case_weights = weights,
+        standardize = TRUE
+      )
+    } else {
+      if (!requireNamespace("quantgen", quietly = TRUE)) {
+        stop("The optional 'quantgen' package is required only when model_backend='quantgen'. ",
+             "Install quantgen or use the default model_backend='quantreg'.")
+      }
+      quantgen_args <- list(
+        as.matrix(train_data[covariates]), train_data[[response]],
+        tau = tau, lambda = lambda, standardize = TRUE,
+        lp_solver = lp_solver, intercept = TRUE, weights = weights
+      )
+      if (!is.null(time_limit)) quantgen_args$time_limit <- time_limit
+      obj <- do.call(quantgen::quantile_lasso, quantgen_args)
     }
 
     # Save model to cache.
@@ -339,22 +326,162 @@ get_model <- function(model_path, train_data, covariates, response, tau,
     attr(obj, "gamma") <- gamma
     attr(obj, "lambda") <- lambda
     attr(obj, "lp_solver") <- lp_solver
-    attr(obj, "backend") <- backend
+    attr(obj, "model_backend") <- model_backend
     saveRDS(obj, file=model_path)
   } else {
     # Load model from cache invisibly. Object has the same name as the original
     # model object, `obj`.
     message(str_interp("Loading from ${model_path}"))
     obj <- readRDS(model_path)
+    cached_backend <- attr(obj, "model_backend")
+    if (is.null(cached_backend)) {
+      # Models written before backend metadata existed used quantgen.
+      cached_backend <- "quantgen"
+      attr(obj, "model_backend") <- cached_backend
+    }
+    if (!identical(cached_backend, model_backend)) {
+      stop("Cached model backend is ", cached_backend,
+           " but the requested backend is ", model_backend, ".")
+    }
   }
 
   return(obj)
+}
+
+#' Fit weighted lasso quantile regressions with quantreg
+#'
+#' `quantreg` ignores its ordinary `weights` argument for penalized fits. This
+#' adapter implements case-weighted check loss exactly by multiplying each
+#' standardized design row (including the intercept) and its response by the
+#' non-negative case weight before calling [quantreg::rq.fit.lasso()]. Since
+#' the check loss is positively homogeneous,
+#' `rho_tau(w * residual) = w * rho_tau(residual)` for `w >= 0`.
+#' Linearly dependent predictor columns are omitted during fitting and assigned
+#' zero coefficients in the returned model so that prediction still accepts the
+#' original predictor matrix.
+#'
+#' @param x Numeric predictor matrix.
+#' @param y Numeric response vector.
+#' @param taus Quantile levels to fit.
+#' @param lambda Non-negative lasso penalty. The intercept is unpenalized.
+#' @param case_weights Optional non-negative observation weights.
+#' @param standardize Whether to center and scale predictors before fitting.
+#' @return A `delphirf_quantreg_lasso` object.
+#' @export
+fit_quantreg_lasso <- function(x, y, taus, lambda = 0.1,
+                               case_weights = NULL, standardize = TRUE) {
+  x <- as.matrix(x)
+  storage.mode(x) <- "double"
+  y <- as.numeric(y)
+  taus <- as.numeric(taus)
+  if (nrow(x) != length(y)) stop("x and y have incompatible lengths.")
+  if (!nrow(x) || !ncol(x)) stop("x must contain rows and predictors.")
+  if (any(!is.finite(x)) || any(!is.finite(y))) {
+    stop("x and y must be finite.")
+  }
+  if (!length(taus) || any(!is.finite(taus)) || any(taus <= 0 | taus >= 1)) {
+    stop("taus must lie strictly between zero and one.")
+  }
+  if (length(lambda) != 1L || !is.finite(lambda) || lambda < 0) {
+    stop("lambda must be one finite non-negative value.")
+  }
+  if (is.null(case_weights)) case_weights <- rep(1, nrow(x))
+  case_weights <- as.numeric(case_weights)
+  if (length(case_weights) != nrow(x) || any(!is.finite(case_weights)) ||
+      any(case_weights < 0)) {
+    stop("case_weights must be finite, non-negative, and match x rows.")
+  }
+  keep <- case_weights > 0
+  if (!any(keep)) stop("At least one case weight must be positive.")
+  x <- x[keep, , drop = FALSE]
+  y <- y[keep]
+  case_weights <- case_weights[keep]
+
+  centers <- if (standardize) colMeans(x) else rep(0, ncol(x))
+  scales <- if (standardize) apply(x, 2L, stats::sd) else rep(1, ncol(x))
+  scales[!is.finite(scales) | scales <= sqrt(.Machine$double.eps)] <- 1
+  standardized_x <- sweep(sweep(x, 2L, centers, "-"), 2L, scales, "/")
+  design <- cbind(`(Intercept)` = 1, standardized_x)
+
+  # rq.fit.lasso requires a full-rank design. Retain one column from each
+  # linearly dependent set for fitting, then restore zero coefficients for the
+  # omitted columns so prediction continues to accept the original matrix.
+  design_qr <- qr(design, tol = sqrt(.Machine$double.eps), LAPACK = FALSE)
+  active_columns <- sort(design_qr$pivot[seq_len(design_qr$rank)])
+  dropped_columns <- setdiff(seq_len(ncol(design)), active_columns)
+  fit_design <- design[, active_columns, drop = FALSE]
+
+  # For non-negative w, rho_tau(w * (y - x beta)) equals
+  # w * rho_tau(y - x beta). Scaling both y and the complete design row is
+  # therefore an exact weighted-loss transformation; the lasso pseudo-rows
+  # constructed inside rq.fit.lasso remain unweighted.
+  weighted_design <- fit_design * case_weights
+  weighted_y <- y * case_weights
+  penalty <- c(0, rep(lambda, ncol(x)))[active_columns]
+  fits <- lapply(taus, function(tau) {
+    quantreg::rq.fit.lasso(
+      weighted_design, weighted_y, tau = tau, lambda = penalty
+    )
+  })
+  active_coefficients <- vapply(
+    fits, function(fit) as.numeric(fit$coefficients),
+    numeric(length(active_columns))
+  )
+  coefficients <- matrix(0, nrow = ncol(design), ncol = length(taus))
+  coefficients[active_columns, ] <- active_coefficients
+  rownames(coefficients) <- colnames(design)
+  colnames(coefficients) <- paste0("tau", taus)
+  structure(
+    list(coefficients = coefficients, taus = taus,
+         centers = centers, scales = scales,
+         predictor_names = colnames(x), fits = fits,
+         training_weights = case_weights,
+         dropped_predictors = colnames(design)[dropped_columns]),
+    class = "delphirf_quantreg_lasso"
+  )
+}
+
+#' Predict using a fitted DelphiRF quantile-lasso model
+#'
+#' @param object A fitted `delphirf_quantreg_lasso` object.
+#' @param newx A matrix or data frame of predictor values.
+#' @param ... Additional arguments, currently ignored.
+#' @return A numeric vector or matrix of quantile predictions.
+#' @export
+predict.delphirf_quantreg_lasso <- function(object, newx, ...) {
+  newx <- as.matrix(newx)
+  storage.mode(newx) <- "double"
+  if (ncol(newx) != length(object$centers)) {
+    stop("newx does not have the fitted number of predictors.")
+  }
+  standardized_x <- sweep(
+    sweep(newx, 2L, object$centers, "-"), 2L, object$scales, "/"
+  )
+  prediction <- cbind(`(Intercept)` = 1, standardized_x) %*%
+    object$coefficients
+  if (length(object$taus) == 1L) as.numeric(prediction) else prediction
+}
+
+#' Extract coefficients from a fitted DelphiRF quantile-lasso model
+#'
+#' @param object A fitted `delphirf_quantreg_lasso` object.
+#' @param ... Additional arguments, currently ignored.
+#' @return A named coefficient vector or coefficient matrix.
+#' @export
+coef.delphirf_quantreg_lasso <- function(object, ...) {
+  if (length(object$taus) == 1L) {
+    stats::setNames(as.numeric(object$coefficients),
+                    rownames(object$coefficients))
+  } else {
+    object$coefficients
+  }
 }
 
 #' Construct filename for model with given parameters
 #'
 #' @template indicator-template
 #' @template signal-template
+#' @template geo_level-template
 #' @template geo-template
 #' @template signal_suffix-template
 #' @template lambda-template
@@ -364,7 +491,8 @@ get_model <- function(model_path, train_data, covariates, response, tau,
 #' @param tau Decimal quantile to be predicted. Values must be between 0 and 1.
 #' @param model_mode Boolean, indicates whether the file name is for a model.
 #' @template training_end_date-template
-#' @template training_start_date-template
+#' @template training_days-template
+#' @template model_save_dir-template
 #'
 #' @return Path to file containing model object.
 #'
@@ -375,7 +503,7 @@ generate_filename <- function(indicator, signal,
                               training_end_date, training_days=365, geo="",
                               value_type = "", test_lag_group="", tau="",
                               model_mode = TRUE,
-                              model_save_dir="./") {
+                              model_save_dir=default_model_save_dir()) {
   if (lambda != "") {
     lambda <- str_interp("lambda${lambda}")
   }
@@ -408,7 +536,6 @@ generate_filename <- function(indicator, signal,
                            tau, training_days, lambda, gamma)
 
   foldername <- paste(folder_components[folder_components != ""], collapse="_")
-  create_dir_not_exist(file.path(model_save_dir, foldername))
 
   filename <- paste0(
     # Drop any empty strings.
@@ -428,13 +555,17 @@ generate_filename <- function(indicator, signal,
 #' @param train_data Data frame containing training data, including lag values.
 #' @param lagged_term_list Numeric vector specifying the list of lags to be considered.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
+#' @param extra_params Optional character vector of additional predictor
+#'   columns, e.g. from [aux_feature_names()].
+#' @details For daily data, all seven weekday indicators remain in the
+#'   preprocessed data, while the model parameter list omits `Sun_ref` and
+#'   `Sun_issue` to provide identifiable baseline categories.
 #'
 #' @export
 #'
 #' @importFrom dplyr mutate select
 #'
 create_params_list <- function(train_data, lagged_term_list, temporal_resol,
-                               onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
                                extra_params = NULL) {
   params_list <- c(
     WEEK_ISSUES[1],
@@ -446,13 +577,12 @@ create_params_list <- function(train_data, lagged_term_list, temporal_resol,
     params_list <- c(params_list, LOG_LAG)
   }
 
-  group_names <- if (!is.null(names(onehot_weekdays))) {
-    names(onehot_weekdays)
-  } else {
-    vapply(onehot_weekdays, function(grp) paste0(grp, collapse = ""), character(1))
-  }
-  extra_params_for_daily <- c(paste0(group_names, "_ref"), paste0(group_names, "_issue"))
+  modeled_weekdays <- setdiff(WEEKDAYS_ABBR, "Sun")
+  weekday_params <- c(
+    paste0(modeled_weekdays, "_ref"),
+    paste0(modeled_weekdays, "_issue")
+  )
 
-  base_params <- if (temporal_resol == "daily") c(params_list, extra_params_for_daily) else params_list
-  if (!is.null(extra_params)) c(base_params, extra_params) else base_params
+  base_params <- if (temporal_resol == "daily") c(params_list, weekday_params) else params_list
+  c(base_params, extra_params)
 }

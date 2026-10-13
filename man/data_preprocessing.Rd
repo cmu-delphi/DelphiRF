@@ -18,7 +18,7 @@ data_preprocessing(
   target_lag_lower_tolerance = 0,
   target_lag_upper_tolerance = 0,
   aux_triangles = NULL,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun"))
+  target_as_of_date = NULL
 )
 }
 \arguments{
@@ -55,6 +55,13 @@ through the same fill → lag → log pipeline as the primary signal and
 joined to the result; columns are prefixed with the list element name.
 Use \code{\link[=aux_feature_names]{aux_feature_names()}} to obtain the resulting predictor column names
 for \code{\link[=create_params_list]{create_params_list()}}.}
+
+\item{target_as_of_date}{Optional date limiting target construction to
+reports available on or before that date.}
+}
+\value{
+A tibble containing the prepared reporting triangle and model
+features.
 }
 \description{
 This function processes input data by handling missing values, computing lagged terms,
@@ -63,4 +70,17 @@ It supports both count and fraction data types and ensures consistency in column
 If two value column names are provided and the data type is "fraction", then the first
 value column is treated as the column for numerators while the second column is treated as
 the column for denominators.
+}
+\details{
+The returned data includes a logical \code{genuine_event} column.
+\code{TRUE} identifies every report present in the raw triangle, including an
+unchanged repeated report. Rows created by grid completion or
+carry-forward filling are \code{FALSE}. This metadata is computed before
+missing-update filling so \code{\link[=DelphiRF]{DelphiRF()}} can independently control
+observed-report filtering in training and testing. Counts and fractions
+supplied as one value column use \code{log(value + 1)}. Fractions supplied as
+numerator and denominator columns use
+\code{log(numerator + 1) - log(denominator + 1)}. For daily data, preprocessing
+retains all seven weekday indicators for reference and report dates;
+automatic model construction omits Sunday from each set as the baseline.
 }

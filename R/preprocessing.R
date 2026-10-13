@@ -53,8 +53,8 @@ normalize_weekly_observations <- function(df, refd_col, lag_col) {
 
 #' Fill missing updates in a time series dataset with lagged values
 #' Get pivot table, filling NANs. If there is no update on issue date D but
-#' previous reports exist for issue date D_p < D, all the dates between
-#' [D_p, D] are filled with with the reported value on date D_p. If there is
+#' previous reports exist for issue date `D_p < D`, all the dates between
+#' `D_p` and `D` are filled with the reported value on date `D_p`. If there is
 #' no update for any previous issue date, fill in with 0.
 #' This function creates a complete reference-report date grid and fills in missing updates.
 #' If an update is missing on a certain issue date but previous updates exist,
@@ -67,6 +67,8 @@ normalize_weekly_observations <- function(df, refd_col, lag_col) {
 #' @template lag_col-template
 #' @param temporal_resol A string specifying the temporal resolution of the data.
 #'   Accepts `"daily"` (default) or `"weekly"` for processing in daily or weekly intervals.
+#' @param max_report_override Optional maximum report date through which missing
+#'   updates should be generated.
 #'
 #' @importFrom tidyr fill pivot_wider pivot_longer replace_na expand_grid
 #' @importFrom dplyr %>% select left_join mutate arrange distinct filter everything
@@ -108,9 +110,10 @@ fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_reso
 
   # Create a complete grid of all combinations of reference_date and report_date
   complete_grid <- tidyr::expand_grid(
-    !!refd_col := all_reference_dates,
+    .reference_date = all_reference_dates,
     report_date = all_report_dates
   )
+  names(complete_grid)[names(complete_grid) == ".reference_date"] <- refd_col
 
   # Join with the original dataset and fill missing values
   filled_df <- complete_grid %>%
@@ -119,7 +122,11 @@ fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_reso
 
   pivot_df <- filled_df %>%
     dplyr::arrange(.data[["report_date"]]) %>%
-    tidyr::pivot_wider(id_cols = "report_date", names_from = refd_col, values_from = value_col)
+    tidyr::pivot_wider(
+      id_cols = "report_date",
+      names_from = dplyr::all_of(refd_col),
+      values_from = dplyr::all_of(value_col)
+    )
 
   # Check for irregular gaps
   if (any(as.numeric(diff(pivot_df[["report_date"]]), units = "days") != gap)) {

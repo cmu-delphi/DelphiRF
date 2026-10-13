@@ -19,7 +19,7 @@ revision_forecast(
   test_lag_group = "",
   geo = "ma",
   value_type = "count",
-  model_save_dir = "./receiving",
+  model_save_dir = default_model_save_dir(),
   indicator = "testdata",
   signal = "",
   geo_level = "state",
@@ -28,9 +28,8 @@ revision_forecast(
   training_days = 365,
   train_models = TRUE,
   make_predictions = TRUE,
-  onehot_weekdays = list(Mon = c("Mon"), Weekends = c("Sat", "Sun")),
-  time_limit = NULL,
-  backend = SOLVER_BACKEND
+  model_backend = c("quantreg", "quantgen"),
+  time_limit = NULL
 )
 }
 \arguments{
@@ -47,40 +46,59 @@ values on the reference date are considered in model training.}
 
 \item{params_list}{A list of model parameters used for training and prediction.}
 
-\item{train_models-template}{\link{DESCRIPTION GOES HERE}}
+\item{extra_params}{Optional character vector of additional predictor columns
+appended to the default parameter list, e.g. from \code{\link[=aux_feature_names]{aux_feature_names()}}.}
 
-\item{make_predictions-template}{\link{DESCRIPTION GOES HERE}}
+\item{temporal_resol}{Character; either \code{"daily"} or \code{"weekly"} resolution.}
 
-\item{model_save_dir-template}{\link{DESCRIPTION GOES HERE}}
+\item{lambda}{Value supplied for \code{lambda}.}
 
-\item{indicator-template}{\link{DESCRIPTION GOES HERE}}
+\item{gamma}{Value supplied for \code{gamma}.}
 
-\item{signal-template}{\link{DESCRIPTION GOES HERE}}
+\item{lp_solver}{Value supplied for \code{lp_solver}.}
 
-\item{lp_solver-template}{\link{DESCRIPTION GOES HERE}}
+\item{test_lag_group}{Value supplied for \code{test_lag_group}.}
 
-\item{geo_level-template}{\link{DESCRIPTION GOES HERE}}
+\item{geo}{Value supplied for \code{geo}.}
 
-\item{geo-template}{\link{DESCRIPTION GOES HERE}}
+\item{value_type}{Value supplied for \code{value_type}.}
 
-\item{signal_suffix-template}{\link{DESCRIPTION GOES HERE}}
+\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
+models are stored by default in DelphiRF's platform-specific user cache
+directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
+can be reused across R sessions. Older R versions use a session temporary
+directory. Supply an explicit path to use a different location.}
 
-\item{lambda-template}{\link{DESCRIPTION GOES HERE}}
+\item{indicator}{Value supplied for \code{indicator}.}
 
-\item{gamma-template}{\link{DESCRIPTION GOES HERE}}
+\item{signal}{Value supplied for \code{signal}.}
 
-\item{value_type-template}{\link{DESCRIPTION GOES HERE}}
+\item{geo_level}{Value supplied for \code{geo_level}.}
 
-\item{test_lag_group-template}{\link{DESCRIPTION GOES HERE}}
+\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
 
-\item{training_end_date-template}{\link{DESCRIPTION GOES HERE}}
+\item{training_end_date}{End date assigned to the training data. High-level
+forecasting functions use the latest input report date when this is empty.}
 
-\item{training_days-template}{\link{DESCRIPTION GOES HERE}}
+\item{training_days}{Number of days assigned to the training target-date
+window. Functions receiving an unfiltered dataset apply this window;
+\code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
+model cache filenames.}
+
+\item{train_models}{Value supplied for \code{train_models}.}
+
+\item{make_predictions}{Value supplied for \code{make_predictions}.}
+
+\item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
+default, using standardized predictors and weighted lasso fits.
+\code{"quantgen"} retains the previous optional solver.}
+
+\item{time_limit}{Optional solver time limit passed to the \code{quantgen}
+backend. It is ignored by the default \code{quantreg} backend.}
 }
 \value{
-A list containing:
-\item{test_data}{The test dataset with added forecast evaluations.}
-\item{coefs}{Model coefficients from the trained model.}
+A tibble containing forecasts and, when the completed revision value
+is available, evaluation scores.
 }
 \description{
 This function trains a forecast model for a given geographical location

@@ -22,6 +22,8 @@ export_test_result(
 \arguments{
 \item{test_data}{A data frame containing testing data.}
 
+\item{coef_data}{A data frame containing fitted model coefficients.}
+
 \item{indicator}{A string representing the forecasting indicator.}
 
 \item{signal}{A string representing the forecast signal.}
@@ -36,23 +38,11 @@ export_test_result(
 
 \item{training_end_date}{The end date for training data.}
 
+\item{training_days}{Number of days represented by the training window.}
+
 \item{value_type}{A string specifying the type of value being forecasted (e.g., "count").}
 
-\item{train_data}{A data frame containing training data.}
-
-\item{response}{A string specifying the response variable.}
-
-\item{taus}{A numeric vector of quantiles for prediction intervals.}
-
-\item{params_list}{A list of model parameters used for training and prediction.}
-
-\item{geo}{A string specifying the geographical location for forecasting.}
-
-\item{lp_solver}{A solver used for linear programming optimization in the model.}
-
-\item{model_save_dir}{A string specifying the directory to save trained models.}
-
-\item{training_start_date}{The start date for training data.}
+\item{export_dir}{Directory in which prediction and coefficient files are written.}
 }
 \description{
 Export test results. Merge all the locations and test lags together for one output file
