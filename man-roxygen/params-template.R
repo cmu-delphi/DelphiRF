@@ -1,2 +1,2 @@
-#' @param params-template [DESCRIPTION GOES HERE]
+#' @param params Value supplied for `params`.
 

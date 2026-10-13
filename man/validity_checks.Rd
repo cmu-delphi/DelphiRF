@@ -18,19 +18,19 @@ validity_checks(
 \arguments{
 \item{df}{A data.frame}
 
-\item{value_type-template}{\link{DESCRIPTION GOES HERE}}
+\item{value_type}{Value supplied for \code{value_type}.}
 
-\item{num_col-template}{\link{DESCRIPTION GOES HERE}}
+\item{num_col}{Value supplied for \code{num_col}.}
 
-\item{denom_col-template}{\link{DESCRIPTION GOES HERE}}
+\item{denom_col}{Value supplied for \code{denom_col}.}
 
-\item{signal_suffixes-template}{\link{DESCRIPTION GOES HERE}}
+\item{signal_suffixes}{Value supplied for \code{signal_suffixes}.}
 
-\item{refd_col-template}{\link{DESCRIPTION GOES HERE}}
+\item{refd_col}{Value supplied for \code{refd_col}.}
 
-\item{lag_col-template}{\link{DESCRIPTION GOES HERE}}
+\item{lag_col}{Value supplied for \code{lag_col}.}
 
-\item{issued_col-template}{\link{DESCRIPTION GOES HERE}}
+\item{issued_col}{Value supplied for \code{issued_col}.}
 }
 \value{
 list of input dataframe augmented with lag column, if it

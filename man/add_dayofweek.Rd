@@ -13,7 +13,8 @@ add_dayofweek(df, time_col, suffix, wd = WEEKDAYS_ABBR)
 
 \item{suffix}{A string suffix to distinguish the encoded columns (e.g., "_ref" for reference dates).}
 
-\item{wd}{A character vector specifying the days of the week. Defaults to \code{WEEKDAYS_ABBR} (Monday-Saturday, with Sunday handled separately).}
+\item{wd}{A character vector specifying the days of the week. Defaults to
+all seven stable English abbreviations in \code{WEEKDAYS_ABBR}.}
 }
 \value{
 A data frame with additional columns representing one-hot encoded days of the week.

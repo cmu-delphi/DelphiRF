@@ -10,6 +10,8 @@ add_sqrtscale(df, sqrt_max_raw, rare_thresh = 0.05)
 \item{df}{Data frame containing the data.}
 
 \item{sqrt_max_raw}{The maximum value in the dataset, used to determine bin thresholds.}
+
+\item{rare_thresh}{Minimum relative frequency required to retain an indicator bin.}
 }
 \value{
 A data frame with additional binary indicator columns for square root scaling.

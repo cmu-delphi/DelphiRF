@@ -1,2 +1,2 @@
-#' @param lambda-template [DESCRIPTION GOES HERE]
+#' @param lambda Value supplied for `lambda`.
 

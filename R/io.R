@@ -30,23 +30,18 @@ fips_to_geovalue <- function(df) {
 
 #' Export test results. Merge all the locations and test lags together for one output file
 #'
-#' @param train_data A data frame containing training data.
 #' @param test_data A data frame containing testing data.
-#' @param response A string specifying the response variable.
-#' @param taus A numeric vector of quantiles for prediction intervals.
-#' @param params_list A list of model parameters used for training and prediction.
-#' @param geo A string specifying the geographical location for forecasting.
-#' @param lp_solver A solver used for linear programming optimization in the model.
+#' @param coef_data A data frame containing fitted model coefficients.
 #' @param lambda A numeric vector specifying regularization parameters.
 #' @param gamma A numeric vector specifying additional model parameters.
 #' @param value_type A string specifying the type of value being forecasted (e.g., "count").
-#' @param model_save_dir A string specifying the directory to save trained models.
 #' @param indicator A string representing the forecasting indicator.
 #' @param signal A string representing the forecast signal.
 #' @param geo_level A string specifying the geographical level (e.g., state, county).
 #' @param signal_suffix A string suffix for the signal name.
 #' @param training_end_date The end date for training data.
-#' @param training_start_date The start date for training data.
+#' @param training_days Number of days represented by the training window.
+#' @param export_dir Directory in which prediction and coefficient files are written.
 #' @export
 #' @importFrom readr write_csv
 #' @importFrom stringr str_interp str_split
@@ -65,6 +60,8 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
   components <- strsplit(filepath, "/")[[1]]
   signal_info <- components[length(components)-1]
   file_name <- components[length(components)]
+  output_dir <- file.path(export_dir, signal_info)
+  create_dir_not_exist(output_dir)
 
   if (nrow(test_data) == 0) {
     warning(str_interp("No test data available for ${signal_info}"))
@@ -75,7 +72,7 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
     prediction_col <- colnames(test_data)[grepl("^predicted", colnames(test_data))]
     expected_col <- c("reference_date", "report_date", "lag", "geo_value",
                       "target_date", "wis", prediction_col)
-    write_csv(test_data[expected_col], file.path(export_dir, signal_info, pred_output_file))
+    write_csv(test_data[expected_col], file.path(output_dir, pred_output_file))
   }
 
   if (nrow(coef_data) == 0) {
@@ -83,7 +80,7 @@ export_test_result <- function(test_data, coef_data, indicator, signal,
   } else {
     msg_ts(str_interp("Saving coefficients to disk for ${signal_info}"))
     coef_output_file <- str_interp("coefs_${file_name}")
-    write_csv(coef_data, file.path(export_dir, signal_info, coef_output_file))
+    write_csv(coef_data, file.path(output_dir, coef_output_file))
   }
 }
 

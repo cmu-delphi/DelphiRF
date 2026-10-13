@@ -7,11 +7,11 @@
 create_name_pattern(indicator, signal, file_type = c("daily", "rollup"))
 }
 \arguments{
+\item{indicator}{Value supplied for \code{indicator}.}
+
+\item{signal}{Value supplied for \code{signal}.}
+
 \item{file_type}{A string, either "daily" or "rollup"}
-
-\item{indicator-template}{\link{DESCRIPTION GOES HERE}}
-
-\item{signal-template}{\link{DESCRIPTION GOES HERE}}
 }
 \description{
 Create pattern to match input files of a given type and signal

@@ -1,2 +1,2 @@
-#' @param taus-template [DESCRIPTION GOES HERE]
+#' @param taus Value supplied for `taus`.
 

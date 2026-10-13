@@ -24,7 +24,8 @@ create_dir_not_exist("./output")
 create_dir_not_exist("./cache")
 
 test_that("testing exporting the output file", {
-  params <- read_params("params-run.json", "params-run.json.template")
+  export_dir <- tempfile("delphirf-export-")
+  on.exit(unlink(export_dir, recursive = TRUE), add = TRUE)
 
   expected_col <- c("reference_date", "report_date", "lag", "geo_value",
                     "target_date", "wis", "predicted_tau0.5")
@@ -38,18 +39,14 @@ test_that("testing exporting the output file", {
   export_test_result(test_data, coef_data, indicator, signal,
                      geo_level, signal_suffix, lambda, gamma,
                      training_end_date, training_days,
-                     value_type, params$export_dir)
-  prediction_file <- file.path(params$export_dir, signal_dir,
+                     value_type, export_dir)
+  prediction_file <- file.path(export_dir, signal_dir,
                                "prediction_20220101_tw7_lambda0.1_gamma0.1.csv.gz")
-  coefs_file <- file.path(params$export_dir, signal_dir,
+  coefs_file <- file.path(export_dir, signal_dir,
                           "coefs_20220101_tw7_lambda0.1_gamma0.1.csv.gz")
 
   expect_true(file.exists(prediction_file))
   expect_true(file.exists(coefs_file))
-
-  # Remove
-  unlink(file.path(params$export_dir, signal_dir),recursive = TRUE)
-  file.remove("params-run.json")
 })
 
 
@@ -283,5 +280,3 @@ test_that("get_training_date_range", {
   file.remove(file.path(tdir, "20211031_changehc_covid_state_lambda0.1_gamma0.1_fraction_ny_lag1_tau0.5.rds"))
   file.remove(file.path(tdir, "20221031_flu_covid_state_lambda0.1_fraction_ny_lag1_tau0.5.rds"))
 })
-
-

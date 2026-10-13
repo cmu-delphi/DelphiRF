@@ -7,7 +7,7 @@
 get_report_date_range(params)
 }
 \arguments{
-\item{params-template}{\link{DESCRIPTION GOES HERE}}
+\item{params}{Value supplied for \code{params}.}
 }
 \description{
 With current logic, we always need to include data for model training (in

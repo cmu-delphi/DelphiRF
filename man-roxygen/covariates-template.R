@@ -1,2 +1,2 @@
-#' @param covariates-template [DESCRIPTION GOES HERE]
+#' @param covariates Value supplied for `covariates`.
 

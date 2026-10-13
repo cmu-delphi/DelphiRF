@@ -1,2 +1,2 @@
-#' @param signal_suffix-template [DESCRIPTION GOES HERE]
+#' @param signal_suffix Value supplied for `signal_suffix`.
 

@@ -8,8 +8,6 @@ add_weights_related(df)
 }
 \arguments{
 \item{df}{A dataframe containing the necessary columns for computation.}
-
-\item{comparison_date}{A Date object representing the reference date for comparison.}
 }
 \value{
 A dataframe with additional computed columns for weight-related metrics.

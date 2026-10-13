@@ -1,2 +1,2 @@
-#' @param response-template [DESCRIPTION GOES HERE]
+#' @param response Value supplied for `response`.
 

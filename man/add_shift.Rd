@@ -12,7 +12,7 @@ add_shift(df, n_day, refd_col)
 \item{n_day}{An integer specifying the number of days to shift the reference date.
 Positive values shift forward, negative values shift backward.}
 
-\item{refd_col-template}{\link{DESCRIPTION GOES HERE}}
+\item{refd_col}{Value supplied for \code{refd_col}.}
 }
 \value{
 A data frame with the reference date column shifted.

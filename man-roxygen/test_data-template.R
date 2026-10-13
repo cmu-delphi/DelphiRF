@@ -1,2 +1,2 @@
-#' @param test_data-template [DESCRIPTION GOES HERE]
+#' @param test_data Value supplied for `test_data`.
 

@@ -1,2 +1,2 @@
-#' @param issued_col-template [DESCRIPTION GOES HERE]
+#' @param issued_col Value supplied for `issued_col`.
 

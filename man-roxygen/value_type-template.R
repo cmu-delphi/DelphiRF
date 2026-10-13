@@ -1,2 +1,2 @@
-#' @param value_type-template [DESCRIPTION GOES HERE]
+#' @param value_type Value supplied for `value_type`.
 

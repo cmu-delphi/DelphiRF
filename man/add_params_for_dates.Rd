@@ -25,8 +25,8 @@ including day-of-week and week-of-month effects.
 }
 \details{
 \itemize{
-\item If \code{temporal_resol} is "daily", one-hot encoded day-of-week columns are added
-for both \code{refd_col} (reference date) and \code{"report_date"}.
+\item If \code{temporal_resol} is "daily", all seven one-hot encoded weekday
+columns are added for both \code{refd_col} and \code{"report_date"}.
 \item One-hot encoded week-of-month columns are added for \code{"report_date"} in all cases.
 }
 }
