@@ -17,7 +17,8 @@ data_preprocessing(
   smoothed = FALSE,
   target_lag_lower_tolerance = 0,
   target_lag_upper_tolerance = 0,
-  target_as_of_date = NULL
+  target_as_of_date = NULL,
+  revision_start_lag = NULL
 )
 }
 \arguments{
@@ -49,6 +50,11 @@ search for genuine target revisions.}
 
 \item{target_as_of_date}{Optional date limiting target construction to
 reports available on or before that date.}
+
+\item{revision_start_lag}{Optional lag of the initial report against which
+revision magnitudes are measured. \code{NULL} (default) uses the smallest lag
+with a genuine release in \code{df} (\eqn{l_{min}}), so a stream first reported
+after lag 0 is not compared with the zero that grid completion fills in.}
 }
 \value{
 A tibble containing the prepared reporting triangle and model

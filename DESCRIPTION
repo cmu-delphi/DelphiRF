@@ -1,6 +1,6 @@
 Package: DelphiRF
 Title: Delphi - Revision Forecast
-Version: 0.0.0.9000
+Version: 0.0.0.9001
 Authors@R: 
     c(person("Jingjing", "Tang", email = "jtang2@andrew.cmu.edu", role = c("aut", "cre")))
 Maintainer: Jingjing Tang <jtang2@andrew.cmu.edu>

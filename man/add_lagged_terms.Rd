@@ -10,7 +10,8 @@ add_lagged_terms(
   refd_col,
   lag_col,
   lagged_term_list = 1:7,
-  temporal_resol = "weekly"
+  temporal_resol = "weekly",
+  start_lag = NULL
 )
 }
 \arguments{
@@ -26,6 +27,10 @@ add_lagged_terms(
 
 \item{temporal_resol}{Character. Temporal resolution, either \code{"weekly"} or \code{"daily"}.
 Default is \code{"weekly"}. Determines how lag shifts are applied.}
+
+\item{start_lag}{Numeric or \code{NULL}. The lag of the initial report, \eqn{l_{min}},
+against which revision magnitudes are measured. \code{NULL} (default) uses the
+smallest lag present in \code{df}.}
 }
 \value{
 A modified data frame with additional lagged columns.
@@ -36,6 +41,9 @@ user-defined time steps and temporal resolution (daily or weekly).
 }
 \details{
 \itemize{
+\item The revision magnitude for lag \code{k} is
+\code{log(value_lagk + 1) - log(value_start_lagk + 1)}, where the start value is
+the value of the same reference date at \code{start_lag}.
 \item If \code{temporal_resol = "weekly"}, lag values are divided by 7 to match weekly steps.
 \item If \code{temporal_resol = "daily"}, lag values are applied directly.
 \item The function groups data by \code{report_date}, sorts it by \code{refd_col}, and applies lags.

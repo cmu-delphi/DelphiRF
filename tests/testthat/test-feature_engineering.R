@@ -564,3 +564,41 @@ test_that("data_preprocessing labels genuine events before forward filling", {
   expect_equal(result$lag, 0:3)
   expect_equal(result$genuine_event, c(TRUE, FALSE, TRUE, TRUE))
 })
+
+test_that("add_lagged_terms measures revisions from an explicit start lag", {
+  df <- expand.grid(ref_date = as.Date("2022-01-01") + 0:20, lag = 0:5)
+  df$value <- ifelse(df$lag == 0, 0, 10 * as.numeric(df$ref_date - as.Date("2022-01-01")) + df$lag)
+  from_grid <- add_lagged_terms(df, "value", "ref_date", "lag", 1, "daily")
+  from_first_report <- add_lagged_terms(df, "value", "ref_date", "lag", 1, "daily", start_lag = 1)
+  row <- from_first_report[from_first_report$ref_date == as.Date("2022-01-10") &
+                             from_first_report$lag == 3, ]
+  # Reference date 01-09 at lag 4 (same report date), measured from its lag-1 report.
+  expect_equal(row$value_start_lag1, 10 * 8 + 1)
+  expect_equal(row$log_delta_value_lag1, log(10 * 8 + 4 + 1) - log(10 * 8 + 1 + 1))
+  # Without the start lag the lag-0 zero is the reference, as before.
+  old <- from_grid[from_grid$ref_date == as.Date("2022-01-10") & from_grid$lag == 3, ]
+  expect_equal(old$value_start_lag1, 0)
+})
+
+test_that("data_preprocessing measures revision magnitude from the first report (l_min)", {
+  refs <- as.Date("2022-01-01") + 0:59
+  raw <- do.call(rbind, lapply(seq_along(refs), function(k) {
+    data.frame(reference_date = refs[k], lag = 1:20,       # first released at lag 1
+               value = 100 + k + 3 * pmin(1:20, 8))
+  }))
+  out <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                            lag_col = "lag", ref_lag = 14, lagged_term_list = c(1, 7),
+                            value_type = "count", temporal_resol = "daily", smoothed = TRUE)
+  row <- out[out$reference_date == as.Date("2022-02-15") & out$lag == 3, ]
+  # Reference date 02-08 (k = 39) at lag 10, measured from its lag-1 report.
+  expect_equal(row$value_7dav_start_lag7, 100 + 39 + 3)
+  expect_equal(row$log_delta_value_7dav_lag7, log(100 + 39 + 24 + 1) - log(100 + 39 + 3 + 1))
+  # It is no longer a copy of the level feature.
+  expect_false(isTRUE(all.equal(out$log_delta_value_7dav_lag7, out$log_value_7dav_lag7)))
+  # An explicit start lag is honoured.
+  explicit <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                                 lag_col = "lag", ref_lag = 14, lagged_term_list = c(1, 7),
+                                 value_type = "count", temporal_resol = "daily", smoothed = TRUE,
+                                 revision_start_lag = 0)
+  expect_true(all(explicit$value_7dav_start_lag7[!is.na(explicit$value_7dav_start_lag7)] == 0))
+})

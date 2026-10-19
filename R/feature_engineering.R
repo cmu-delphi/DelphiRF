@@ -103,8 +103,14 @@ add_7davs <- function(df, value_col, refd_col, lag_col) {
 #' @param lagged_term_list Numeric vector. List of lag values to be applied. Default is `1:7`.
 #' @param temporal_resol Character. Temporal resolution, either `"weekly"` or `"daily"`.
 #'                       Default is `"weekly"`. Determines how lag shifts are applied.
+#' @param start_lag Numeric or `NULL`. The lag of the initial report, \eqn{l_{min}},
+#'   against which revision magnitudes are measured. `NULL` (default) uses the
+#'   smallest lag present in `df`.
 #'
 #' @details
+#' - The revision magnitude for lag `k` is
+#'   `log(value_lagk + 1) - log(value_start_lagk + 1)`, where the start value is
+#'   the value of the same reference date at `start_lag`.
 #' - If `temporal_resol = "weekly"`, lag values are divided by 7 to match weekly steps.
 #' - If `temporal_resol = "daily"`, lag values are applied directly.
 #' - The function groups data by `report_date`, sorts it by `refd_col`, and applies lags.
@@ -115,7 +121,8 @@ add_7davs <- function(df, value_col, refd_col, lag_col) {
 #' @importFrom dplyr %>% group_by arrange mutate across ungroup
 #' @importFrom rlang sym set_names
 #' @export
-add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=1:7, temporal_resol = "weekly") {
+add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=1:7, temporal_resol = "weekly",
+                             start_lag = NULL) {
   # Validate temporal resolution
   if (!temporal_resol %in% c("weekly", "daily")) {
     stop("Invalid temporal_resol value. Choose 'weekly' or 'daily'.")
@@ -140,7 +147,7 @@ add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=
     )) %>%
     ungroup()
 
-  min_lag <- min(df[[lag_col]])
+  min_lag <- if (is.null(start_lag)) min(df[[lag_col]]) else start_lag
   for (lag in lagged_term_list) {
     # Select and adjust the previous lagged data
     start_df_prev <- df[df[[lag_col]] == min_lag, c(refd_col, value_col)]
@@ -427,6 +434,10 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'   search for genuine target revisions.
 #' @param target_as_of_date Optional date limiting target construction to
 #'   reports available on or before that date.
+#' @param revision_start_lag Optional lag of the initial report against which
+#'   revision magnitudes are measured. `NULL` (default) uses the smallest lag
+#'   with a genuine release in `df` (\eqn{l_{min}}), so a stream first reported
+#'   after lag 0 is not compared with the zero that grid completion fills in.
 #' @details The returned data includes a logical `genuine_event` column.
 #'   `TRUE` identifies every report present in the raw triangle, including an
 #'   unchanged repeated report. Rows created by grid completion or
@@ -450,7 +461,8 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                temporal_resol="daily", smoothed=FALSE,
                                target_lag_lower_tolerance = 0,
                                target_lag_upper_tolerance = 0,
-                               target_as_of_date = NULL) {
+                               target_as_of_date = NULL,
+                               revision_start_lag = NULL) {
   if (value_type == "count") {
     if (length(value_col) > 1) warning("Multiple value column names provided; only the first one will be used.")
     if (length(unique(suffixes)) > 1) warning("Multiple suffixes provided; only the first one will be used.")
@@ -491,6 +503,13 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   genuine_event_lookup <- create_genuine_event_lookup(
     df, value_col, refd_col, lag_col, temporal_resol
   )
+  # Revision magnitudes are measured against the initial report: the smallest
+  # lag at which the data provide a release (l_min), not the lag-0 row that
+  # grid completion adds even when nothing is released on the reference date.
+  if (is.null(revision_start_lag) && nrow(genuine_event_lookup) > 0) {
+    revision_start_lag <- min(as.numeric(
+      genuine_event_lookup$report_date - genuine_event_lookup$reference_date))
+  }
 
   target_lookup <- create_target_lookup(
     df, value_col, refd_col, lag_col, ref_lag,
@@ -505,7 +524,8 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
     } else {
       filled_df$value_7dav = filled_df$value_raw
     }
-    filled_df <- add_lagged_terms(filled_df, "value_7dav", "reference_date", "lag", lagged_term_list, temporal_resol)
+    filled_df <- add_lagged_terms(filled_df, "value_7dav", "reference_date", "lag", lagged_term_list,
+                                  temporal_resol, start_lag = revision_start_lag)
     filled_df <- attach_target_lookup(filled_df, target_lookup)
     add_log_transformed(filled_df, lagged_term_list)
   })
