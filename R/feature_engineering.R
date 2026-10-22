@@ -77,7 +77,6 @@ add_weekofmonth <- function(df, time_col, wm = WEEK_ISSUES) {
 #'   series, at every lag.
 #'
 #' @importFrom dplyr group_by arrange mutate ungroup
-#' @importFrom zoo rollapply
 #'
 #' @return A modified data frame with an additional `value_7dav` column.
 #'
@@ -91,9 +90,17 @@ add_7davs <- function(df, value_col, refd_col, lag_col) {
     dplyr::mutate(report_date = !!sym(refd_col) + !!sym(lag_col)) %>%
     dplyr::group_by(report_date) %>%
     dplyr::arrange(!!sym(refd_col)) %>%
-    dplyr::mutate(value_7dav = rollapply(!!sym(value_col), 7, mean, fill = NA, align = "right")) %>%
+    dplyr::mutate(value_7dav = trailing_mean_7(!!sym(value_col))) %>%
     ungroup()
   return (as.data.frame(df))
+}
+
+# Base-R equivalent of zoo::rollapply(x, 7, mean, fill = NA,
+# align = "right"). stats::filter() propagates a missing value anywhere in
+# the seven-value window, matching mean(..., na.rm = FALSE).
+trailing_mean_7 <- function(x) {
+  if (length(x) < 7L) return(rep(NA_real_, length(x)))
+  as.numeric(stats::filter(as.numeric(x), rep(1 / 7, 7L), sides = 1L))
 }
 
 # Lag terms are reference-date gaps in days: positive whole numbers, and
@@ -499,7 +506,6 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'   features.
 #'
 #' @importFrom dplyr full_join left_join distinct
-#' @importFrom english english
 #'
 #' @export
 data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
@@ -520,7 +526,8 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
       suffixes <- c("")
     }
     if (length(unique(suffixes)) > length(value_col)) {
-      warning(sprintf("More than two suffixes provided; only the first %s will be used.", as.character(english(length(value_col)))))
+      number_word <- c("one", "two")[[length(value_col)]]
+      warning(sprintf("More than two suffixes provided; only the first %s will be used.", number_word))
       suffixes <- suffixes[1:length(value_col)]
     }
     if (length(unique(suffixes)) < length(value_col)) {

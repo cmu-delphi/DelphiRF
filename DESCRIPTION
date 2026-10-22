@@ -22,14 +22,11 @@ Remotes:
 Config/testthat/edition: 3
 Imports:
     dplyr,
-    english,
-    lubridate,
     quantreg,
     rlang (>= 1.0.0),
     stringr,
     tibble,
-    tidyr,
-    zoo
+    tidyr
 Depends: 
     R (>= 3.5)
 LazyData: true

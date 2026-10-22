@@ -2,7 +2,6 @@ library(testthat)
 
 library(tidyr)
 library(dplyr)
-library(lubridate)
 library(stringr)
 
 refd_col <- "reference_date"
@@ -149,6 +148,11 @@ test_that("testing the calculation of week of a month", {
   expect_equal(get_weekofmonth(as.Date("2022-10-16")), 4)
   expect_equal(get_weekofmonth(as.Date("2022-10-23")), 5)
   expect_equal(get_weekofmonth(as.Date("2022-10-30")), 1)
+
+  expect_equal(
+    get_weekofmonth(as.Date(c("2024-02-01", "2024-02-25", "2024-02-29", NA))),
+    c(1L, 1L, 1L, NA_integer_)
+  )
 
 })
 

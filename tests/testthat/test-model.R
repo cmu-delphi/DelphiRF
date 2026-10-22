@@ -819,6 +819,111 @@ test_that("cross-validation writes fold models to a temporary directory", {
   expect_false(dir.exists(seen$dir))
 })
 
+test_that("cross-validation assigns balanced folds from eligible test-lag rows", {
+  reference_dates <- as.Date("2024-01-01") + 0:19
+  df <- expand.grid(
+    reference_date = reference_dates,
+    lag = 6:8,
+    KEEP.OUT.ATTRS = FALSE
+  )
+  df$report_date <- df$reference_date + df$lag
+  df$target_date <- df$report_date
+  df$genuine_event <- TRUE
+  df$genuine_event[df$lag == 7L & seq_len(nrow(df)) %% 7L == 0L] <- FALSE
+  df$row_key <- paste(df$reference_date, df$lag)
+
+  seen <- new.env(parent = emptyenv())
+  run_cv <- function(input) {
+    seen$calls <- list()
+    cv_revision_forecast(
+      input, test_lag = 7L, taus = 0.5, working_scale = "log_value",
+      lambda_candidates = 0.1, gamma_candidates = 0.1,
+      lag_pad_candidates = 1L, n_folds = 5,
+      genuine_training = FALSE, genuine_testing = TRUE
+    )
+    seen$calls
+  }
+
+  local_mocked_bindings(
+    revision_forecast = function(train_data, test_data, ...) {
+      seen$calls[[length(seen$calls) + 1L]] <- list(
+        train = train_data,
+        validation = test_data
+      )
+      data.frame(wis_working = 0)
+    },
+    .package = "DelphiRF"
+  )
+
+  original <- run_cv(df)
+  reordered <- run_cv(df[sample(seq_len(nrow(df))), , drop = FALSE])
+
+  original_validation <- lapply(original, function(x) x$validation$row_key)
+  reordered_validation <- lapply(reordered, function(x) x$validation$row_key)
+  expect_identical(original_validation, reordered_validation)
+
+  fold_sizes <- lengths(original_validation)
+  expect_lte(max(fold_sizes) - min(fold_sizes), 1L)
+  expect_true(all(fold_sizes > 0L))
+
+  validation_rows <- do.call(rbind, lapply(original, `[[`, "validation"))
+  expected_rows <- df[df$lag == 7L & df$genuine_event, , drop = FALSE]
+  expect_true(all(validation_rows$lag == 7L))
+  expect_true(all(validation_rows$genuine_event))
+  expect_setequal(validation_rows$row_key, expected_rows$row_key)
+  expect_equal(anyDuplicated(validation_rows$row_key), 0L)
+
+  expect_true(all(vapply(original, function(x) {
+    all(c(6L, 7L, 8L) %in% x$train$lag)
+  }, logical(1))))
+  expect_true(all(vapply(original, function(x) {
+    !any(x$validation$row_key %in% x$train$row_key)
+  }, logical(1))))
+})
+
+test_that("cross-validation handles fewer eligible rows than requested folds", {
+  df <- data.frame(
+    reference_date = as.Date("2024-01-01") + 0:14,
+    report_date = as.Date("2024-01-08") + 0:14,
+    target_date = as.Date("2024-01-08") + 0:14,
+    lag = 7L,
+    genuine_event = seq_len(15) <= 3L
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    revision_forecast = function(train_data, test_data, ...) {
+      calls <<- calls + 1L
+      expect_equal(nrow(test_data), 1L)
+      data.frame(wis_working = 0)
+    },
+    .package = "DelphiRF"
+  )
+
+  expect_warning(
+    cv_revision_forecast(
+      df, test_lag = 7L, taus = 0.5, working_scale = "log_value",
+      lambda_candidates = 0.1, gamma_candidates = 0.1,
+      lag_pad_candidates = 0L, n_folds = 5,
+      genuine_training = FALSE, genuine_testing = TRUE
+    ),
+    "using 3 folds instead of 5"
+  )
+  expect_equal(calls, 3L)
+
+  df$genuine_event <- FALSE
+  expect_warning(
+    result <- cv_revision_forecast(
+      df, test_lag = 7L, taus = 0.5, working_scale = "log_value",
+      lambda_candidates = 0.1, gamma_candidates = 0.1,
+      lag_pad_candidates = 0L, n_folds = 5,
+      genuine_training = FALSE, genuine_testing = TRUE
+    ),
+    "No rows are eligible"
+  )
+  expect_true(is.na(result$scores$mean_wis_working))
+  expect_equal(calls, 3L)
+})
+
 test_that("training rows whose target matures after the training end date are dropped", {
   cache <- tempfile("maturity-cache-")
   on.exit(unlink(cache, recursive = TRUE))

@@ -46,7 +46,8 @@ origin.}
 Duplicate levels are removed while preserving first-occurrence order.}
 
 \item{test_lag_groups}{A vector of test lag groups to process. When \code{NULL},
-daily or weekly defaults are selected from \code{temporal_resol}.}
+\link{TEST_LAG_GROUPS_DAILY} or \link{TEST_LAG_GROUPS_WEEKLY} is selected from
+\code{temporal_resol}.}
 
 \item{smoothed_target}{Logical; use the seven-day-average target response
 when \code{TRUE}, or the unsmoothed target response when \code{FALSE}.}
@@ -54,8 +55,10 @@ when \code{TRUE}, or the unsmoothed target response when \code{FALSE}.}
 \item{lagged_term_list}{Optional numeric vector of positive lag values, in
 days, to include as predictors.}
 
-\item{params_list}{Optional character vector naming predictor columns. When
-\code{NULL}, it is built by \code{\link[=create_params_list]{create_params_list()}}.}
+\item{params_list}{Optional character vector naming predictor columns. These
+columns form the model design matrix and, when supplied, replace automatic
+predictor selection. When \code{NULL}, the vector is built by
+\code{\link[=create_params_list]{create_params_list()}}.}
 
 \item{lambda}{Non-negative lasso penalty on the predictor coefficients;
 the intercept is not penalized. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and
@@ -70,7 +73,12 @@ anchor for its lag. \code{0} gives equal weights. \code{\link[=revision_forecast
 value; \code{\link[=DelphiRF]{DelphiRF()}} also accepts a named list with one value per test lag
 group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{lag_pad}{A numeric or named list of lag padding values (default: \code{LAG_PAD}).}
+\item{lag_pad}{A numeric padding value, a two-element vector giving
+\code{c(left_pad, right_pad)}, or a named list of such values by test lag group.
+For a test lag range \verb{[a, b]}, training uses rows with lags from
+\code{a - left_pad} through \code{b + right_pad}, while predictions remain restricted
+to \verb{[a, b]}. A scalar supplies the same padding on both sides (default:
+\code{LAG_PAD}).}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
 

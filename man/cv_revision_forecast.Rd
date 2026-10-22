@@ -49,8 +49,10 @@ when \code{TRUE}, or the unsmoothed target response when \code{FALSE}.}
 \item{lagged_term_list}{Optional numeric vector of positive lag values, in
 days, to include in the model.}
 
-\item{params_list}{Optional character vector naming predictor columns. When
-\code{NULL}, it is built by \code{\link[=create_params_list]{create_params_list()}}.}
+\item{params_list}{Optional character vector naming predictor columns. These
+columns form the model design matrix and, when supplied, replace automatic
+predictor selection. When \code{NULL}, the vector is built by
+\code{\link[=create_params_list]{create_params_list()}}.}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
 
@@ -58,7 +60,9 @@ days, to include in the model.}
 
 \item{gamma_candidates}{Numeric vector of gamma values to try.}
 
-\item{lag_pad_candidates}{Numeric vector of lag padding values to try.}
+\item{lag_pad_candidates}{Numeric vector of lag padding values to try. For a
+test lag range \verb{[a, b]} and candidate \code{p}, training uses lags from \code{a - p}
+through \code{b + p}, while validation remains restricted to \verb{[a, b]}.}
 
 \item{lp_solver}{Linear-programming solver for the optional \code{quantgen}
 backend, \code{"gurobi"} or \code{"glpk"}. Ignored by the default \code{quantreg}
@@ -133,11 +137,16 @@ across multiple folds.
 The function first keeps rows inside the training window: \code{report_date} on
 or before \code{training_end_date}, and \code{target_date} in
 (\code{training_end_date - training_days}, \code{training_end_date}]. Rows are then
-assigned to folds in turn (row 1 to fold 1, row 2 to fold 2, and so on), so
-the folds are not ordered in time: a validation fold can lie between
-training rows. The function is intended for hyperparameter tuning within
-one training window, not for prospective evaluation. Candidates are compared
-by mean \code{wis_working}, the WIS on the working (log) scale.
+eligible validation rows are then restricted to the exact \code{test_lag} range
+and, when requested, to genuine events. After deterministic date/lag sorting,
+those rows are assigned to folds in turn (row 1 to fold 1, row 2 to fold 2,
+and so on). Training retains the full date-filtered data so \code{lag_pad} can add
+neighbouring lags. The folds are not ordered in time: a validation fold can
+lie between training rows. The function is intended for hyperparameter
+tuning within one training window, not for prospective evaluation.
+Candidates are compared by mean \code{wis_working}, the WIS on the working (log)
+scale. If fewer validation rows than requested folds are available, the
+number of folds is reduced to the number of eligible rows with a warning.
 
 Fold models are tuning by-products: unless \code{model_save_dir} is given, they
 are written to a temporary directory that is removed when the function

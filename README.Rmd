@@ -210,13 +210,13 @@ ggplot(visual_part) + geom_line(aes(reference_date, predicted_tau0.5,col="Foreca
 #### Optional Arguments
 The user may optionally specify the following arguments:
 - `taus`: A **numeric vector** of quantiles to be estimated (default: `TAUS`). Duplicate levels are removed while preserving their first-occurrence order.
-- `test_lag_groups`: A **vector** specifying the lag groups to be tested. When omitted, DelphiRF uses the daily or weekly defaults selected from `temporal_resol`.
+- `test_lag_groups`: A **vector** specifying the lag groups to be tested. When omitted, DelphiRF selects `TEST_LAG_GROUPS_DAILY` or `TEST_LAG_GROUPS_WEEKLY` from `temporal_resol`.
 - `smoothed_target`: A **logical** value choosing the response column: the 7-day-average target (`TRUE`) or the unsmoothed target (`FALSE`) (default: `TRUE`).
 - `lagged_term_list`: An **optional numeric vector** of positive lag values, in days, to include in the model.
-- `params_list`: An **optional character vector** of predictor-column names. When omitted, it is built by `create_params_list()`.
+- `params_list`: An **optional character vector** of predictor-column names. These columns form the model design matrix and override automatic predictor selection. When omitted, it is built by `create_params_list()`.
 - `lambda`: A **numeric** value representing the regularization parameter for the model (default: 0.1).
 - `gamma`: A **numeric** value representing the weight for the loss function (default: 0.1).
-- `lag_pad`: A **numeric** value indicating the padding for lag variables (default: 1).
+- `lag_pad`: A **numeric** padding value, a two-element `c(left_pad, right_pad)` vector, or a named list of such values by test lag group. For a test lag range `[a, b]`, training uses lags from `a - left_pad` through `b + right_pad`, while predictions remain restricted to `[a, b]`. A scalar applies the same padding to both sides (default: `LAG_PAD`, currently 1).
 - `temporal_resol`: A **string** specifying the temporal resolution of the data, either `"daily"` or `"weekly"` (default: `"daily"`).
 - `genuine_training`: Use only usable raw observations for training (default: `TRUE`).
 - `genuine_testing`: Generate forecasts only for usable raw observations (default: `TRUE`).

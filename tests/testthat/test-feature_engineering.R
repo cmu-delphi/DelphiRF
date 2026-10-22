@@ -101,6 +101,22 @@ test_that("add_7davs correctly computes report_date and 7dav", {
 })
 
 
+test_that("add_7davs preserves missing-window and short-group behavior", {
+  dates <- as.Date("2024-01-01") + 0:8
+  input <- data.frame(
+    reference_date = dates,
+    lag = 0,
+    value_raw = c(1:6, NA, 8:9)
+  )
+
+  result <- add_7davs(input, "value_raw", "reference_date", "lag")
+  expect_equal(result$value_7dav, rep(NA_real_, 9))
+
+  short <- add_7davs(input[1:4, ], "value_raw", "reference_date", "lag")
+  expect_equal(short$value_7dav, rep(NA_real_, 4))
+})
+
+
 
 test_that("add_lagged_terms correctly adds lagged columns for daily data", {
   # Create sample data

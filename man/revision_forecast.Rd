@@ -55,8 +55,9 @@ selects a prepared response column; it does not smooth data in this function.}
 \item{lagged_term_list}{A numeric vector specifying the lag values for which reported
 values on the reference date are considered in model training.}
 
-\item{params_list}{Character vector of predictor columns. When \code{NULL}, it
-is built by \code{\link[=create_params_list]{create_params_list()}}.}
+\item{params_list}{Character vector of predictor columns. These columns form
+the model design matrix and, when supplied, replace automatic predictor
+selection. When \code{NULL}, the vector is built by \code{\link[=create_params_list]{create_params_list()}}.}
 
 \item{temporal_resol}{Character; either \code{"daily"} or \code{"weekly"} resolution.}
 

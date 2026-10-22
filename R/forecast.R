@@ -26,8 +26,9 @@
 #' @param taus A numeric vector specifying the quantiles for prediction
 #'   intervals. Duplicate levels are removed while preserving first-occurrence
 #'   order.
-#' @param params_list Character vector of predictor columns. When `NULL`, it
-#'   is built by [create_params_list()].
+#' @param params_list Character vector of predictor columns. These columns form
+#'   the model design matrix and, when supplied, replace automatic predictor
+#'   selection. When `NULL`, the vector is built by [create_params_list()].
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
 #' @param temporal_resol Character; either `"daily"` or `"weekly"` resolution.
@@ -272,11 +273,16 @@ validate_training_end_date <- function(training_end_date, default,
 #' The function first keeps rows inside the training window: `report_date` on
 #' or before `training_end_date`, and `target_date` in
 #' (`training_end_date - training_days`, `training_end_date`]. Rows are then
-#' assigned to folds in turn (row 1 to fold 1, row 2 to fold 2, and so on), so
-#' the folds are not ordered in time: a validation fold can lie between
-#' training rows. The function is intended for hyperparameter tuning within
-#' one training window, not for prospective evaluation. Candidates are compared
-#' by mean `wis_working`, the WIS on the working (log) scale.
+#' eligible validation rows are then restricted to the exact `test_lag` range
+#' and, when requested, to genuine events. After deterministic date/lag sorting,
+#' those rows are assigned to folds in turn (row 1 to fold 1, row 2 to fold 2,
+#' and so on). Training retains the full date-filtered data so `lag_pad` can add
+#' neighbouring lags. The folds are not ordered in time: a validation fold can
+#' lie between training rows. The function is intended for hyperparameter
+#' tuning within one training window, not for prospective evaluation.
+#' Candidates are compared by mean `wis_working`, the WIS on the working (log)
+#' scale. If fewer validation rows than requested folds are available, the
+#' number of folds is reduced to the number of eligible rows with a warning.
 #'
 #' Fold models are tuning by-products: unless `model_save_dir` is given, they
 #' are written to a temporary directory that is removed when the function
@@ -290,11 +296,15 @@ validate_training_end_date <- function(training_end_date, default,
 #'   removed while preserving first-occurrence order.
 #' @param lambda_candidates Numeric vector of lambda values to try.
 #' @param gamma_candidates Numeric vector of gamma values to try.
-#' @param lag_pad_candidates Numeric vector of lag padding values to try.
+#' @param lag_pad_candidates Numeric vector of lag padding values to try. For a
+#'   test lag range `[a, b]` and candidate `p`, training uses lags from `a - p`
+#'   through `b + p`, while validation remains restricted to `[a, b]`.
 #' @param lagged_term_list Optional numeric vector of positive lag values, in
 #'   days, to include in the model.
-#' @param params_list Optional character vector naming predictor columns. When
-#'   `NULL`, it is built by [create_params_list()].
+#' @param params_list Optional character vector naming predictor columns. These
+#'   columns form the model design matrix and, when supplied, replace automatic
+#'   predictor selection. When `NULL`, the vector is built by
+#'   [create_params_list()].
 #' @param smoothed_target Logical; use the seven-day-average target response
 #'   when `TRUE`, or the unsmoothed target response when `FALSE`.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
@@ -372,7 +382,52 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
       target_date <= training_end_date
     )
 
-  folds <- rep(seq(1, n_folds), length.out = nrow(df))
+  if (length(n_folds) != 1L || is.na(n_folds) || n_folds < 1L ||
+      n_folds != as.integer(n_folds)) {
+    stop("n_folds must be one positive integer.", call. = FALSE)
+  }
+  n_folds <- as.integer(n_folds)
+
+  # Assign folds only among rows that can actually be used for validation.
+  # Keep the full date-filtered data for training so lag padding can add
+  # neighbouring lags around the exact validation range.
+  df$.cv_row_id <- seq_len(nrow(df))
+  validation_pool <- data_filteration(test_lag, df, 0)
+  if (genuine_testing) {
+    validation_pool <- validation_pool[
+      !is.na(validation_pool$genuine_event) & validation_pool$genuine_event,
+      , drop = FALSE
+    ]
+  }
+  if (nrow(validation_pool)) {
+    ordering_columns <- intersect(
+      c("reference_date", "report_date", "target_date", "lag"),
+      names(validation_pool)
+    )
+    validation_order <- do.call(
+      order,
+      c(unname(validation_pool[ordering_columns]), list(na.last = TRUE))
+    )
+    validation_pool <- validation_pool[validation_order, , drop = FALSE]
+  }
+
+  if (!nrow(validation_pool)) {
+    warning("No rows are eligible for cross-validation at test_lag.",
+            call. = FALSE)
+    effective_n_folds <- 0L
+  } else {
+    effective_n_folds <- min(n_folds, nrow(validation_pool))
+    if (effective_n_folds < n_folds) {
+      warning(
+        sprintf(
+          "Only %d rows are eligible for cross-validation; using %d folds instead of %d.",
+          nrow(validation_pool), effective_n_folds, n_folds
+        ),
+        call. = FALSE
+      )
+    }
+  }
+  folds <- rep(seq_len(effective_n_folds), length.out = nrow(validation_pool))
 
   best_lambda <- NULL
   best_gamma <- NULL
@@ -385,25 +440,24 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
       for (lag_pad in lag_pad_candidates){
 
         scores <- c()
-        for (fold in 1:n_folds) {
-          validation_idx <- which(folds == fold, arr.ind = TRUE)
-          validation_data <- df[validation_idx, ]
-          training_data <- df[-validation_idx, ]
+        for (fold in seq_len(effective_n_folds)) {
+          validation_data <- validation_pool[folds == fold, , drop = FALSE]
+          training_data <- df[
+            !(df$.cv_row_id %in% validation_data$.cv_row_id),
+            , drop = FALSE
+          ]
           if (genuine_training) {
             training_data <- training_data[
               !is.na(training_data$genuine_event) & training_data$genuine_event,
               , drop = FALSE
             ]
           }
-          if (genuine_testing) {
-            validation_data <- validation_data[
-              !is.na(validation_data$genuine_event) & validation_data$genuine_event,
-              , drop = FALSE
-            ]
-          }
 
           train_data <- data_filteration(test_lag, training_data, lag_pad)
-          val_data <- data_filteration(test_lag, validation_data, 0)
+          val_data <- validation_data
+
+          train_data$.cv_row_id <- NULL
+          val_data$.cv_row_id <- NULL
 
           if (nrow(train_data) < 10L || nrow(val_data) == 0L) next
 
@@ -434,7 +488,11 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
           scores <- c(scores, mean(results$wis_working, na.rm=TRUE))
         }
 
-        avg_score <- mean(scores, na.rm=TRUE)
+        avg_score <- if (length(scores)) {
+          mean(scores, na.rm = TRUE)
+        } else {
+          NA_real_
+        }
         candidate_scores[[length(candidate_scores) + 1L]] <- data.frame(
           lambda = lambda, gamma = gamma, lag_pad = lag_pad,
           mean_wis_working = if (is.finite(avg_score)) avg_score else NA_real_)
@@ -501,11 +559,19 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #'   Duplicate levels are removed while preserving first-occurrence order.
 #' @param lagged_term_list Optional numeric vector of positive lag values, in
 #'   days, to include as predictors.
-#' @param params_list Optional character vector naming predictor columns. When
-#'   `NULL`, it is built by [create_params_list()].
+#' @param params_list Optional character vector naming predictor columns. These
+#'   columns form the model design matrix and, when supplied, replace automatic
+#'   predictor selection. When `NULL`, the vector is built by
+#'   [create_params_list()].
 #' @param test_lag_groups A vector of test lag groups to process. When `NULL`,
-#'   daily or weekly defaults are selected from `temporal_resol`.
-#' @param lag_pad A numeric or named list of lag padding values (default: `LAG_PAD`).
+#'   [TEST_LAG_GROUPS_DAILY] or [TEST_LAG_GROUPS_WEEKLY] is selected from
+#'   `temporal_resol`.
+#' @param lag_pad A numeric padding value, a two-element vector giving
+#'   `c(left_pad, right_pad)`, or a named list of such values by test lag group.
+#'   For a test lag range `[a, b]`, training uses rows with lags from
+#'   `a - left_pad` through `b + right_pad`, while predictions remain restricted
+#'   to `[a, b]`. A scalar supplies the same padding on both sides (default:
+#'   `LAG_PAD`).
 #' @param smoothed_target Logical; use the seven-day-average target response
 #'   when `TRUE`, or the unsmoothed target response when `FALSE`.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.

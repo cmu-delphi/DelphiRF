@@ -162,25 +162,22 @@ fill_missing_updates <- function(df, value_col, refd_col, lag_col, temporal_reso
 #'
 #' @param date A Date object.
 #' @return An integer indicating the week number within the month.
-#' @importFrom lubridate make_date days_in_month
 get_weekofmonth <- function(date) {
   if (!inherits(date, "Date")) {
     stop("Input must be a Date object.")
   }
 
-  # Extract year, month, and day
-  year <- lubridate::year(date)
-  month <- lubridate::month(date)
-  day <- lubridate::day(date)
+  day <- as.integer(format(date, "%d"))
+  first_of_month <- as.Date(format(date, "%Y-%m-01"))
 
   # Compute the day of the week for the first day of the month
-  firstdayofmonth <- lubridate::wday(
-    lubridate::make_date(year, month, 1), week_start = 7
-  ) # Sunday is the first day of the week.
+  firstdayofmonth <- as.POSIXlt(first_of_month)$wday + 1L
+  # as.POSIXlt() uses Sunday = 0, so the increment gives Sunday = 1.
   # Calculate which week the date belongs to
   week_number <- (day + firstdayofmonth - 2) %/% 7 + 1
 
-  last_day <- days_in_month(date)
+  first_of_next_month <- as.Date(format(first_of_month + 32, "%Y-%m-01"))
+  last_day <- as.integer(first_of_next_month - first_of_month)
   last_day_week <- ((last_day + firstdayofmonth - 2) %/% 7) + 1
 
   week_number[week_number == last_day_week] <- 1
