@@ -20,7 +20,8 @@ test_that("DelphiRF requires genuine-event metadata by default", {
     lag = 1L
   )
   expect_error(
-    DelphiRF(df, testing_start_date = as.Date("2024-01-02")),
+    DelphiRF(df, testing_start_date = as.Date("2024-01-02"),
+             working_scale = "log_value"),
     "genuine_event column is required"
   )
 })
@@ -33,7 +34,8 @@ test_that("DelphiRF validates genuine-event metadata", {
     genuine_event = 1L
   )
   expect_error(
-    DelphiRF(df, testing_start_date = as.Date("2024-01-02")),
+    DelphiRF(df, testing_start_date = as.Date("2024-01-02"),
+             working_scale = "log_value"),
     "genuine_event must be a logical column"
   )
 })
@@ -65,37 +67,41 @@ test_that("DelphiRF genuine-event switches independently filter training and tes
   )
 
   genuine <- DelphiRF(
-    df, testing_start_date = cutoff, test_lag_groups = 8,
+    df, testing_start_date = cutoff, working_scale = "log_value",
+    test_lag_groups = 8,
     lag_pad = 0, training_days = 30
   )
   expect_equal(nrow(genuine), 2L)
   expect_true(all(genuine$genuine_event))
-  expect_equal(unique(genuine$n_training_rows), 10L)
+  expect_equal(unique(genuine$n_training_rows), 11L)
   expect_true(all(genuine$all_training_rows_genuine))
 
   all_training <- DelphiRF(
-    df, testing_start_date = cutoff, test_lag_groups = 8,
+    df, testing_start_date = cutoff, working_scale = "log_value",
+    test_lag_groups = 8,
     lag_pad = 0, training_days = 30,
     genuine_training = FALSE, genuine_testing = TRUE
   )
   expect_equal(nrow(all_training), 2L)
-  expect_equal(unique(all_training$n_training_rows), 20L)
+  expect_equal(unique(all_training$n_training_rows), 21L)
 
   all_testing <- DelphiRF(
-    df, testing_start_date = cutoff, test_lag_groups = 8,
+    df, testing_start_date = cutoff, working_scale = "log_value",
+    test_lag_groups = 8,
     lag_pad = 0, training_days = 30,
     genuine_training = TRUE, genuine_testing = FALSE
   )
   expect_equal(nrow(all_testing), 4L)
-  expect_equal(unique(all_testing$n_training_rows), 10L)
+  expect_equal(unique(all_testing$n_training_rows), 11L)
 
   all_rows <- DelphiRF(
-    df, testing_start_date = cutoff, test_lag_groups = 8,
+    df, testing_start_date = cutoff, working_scale = "log_value",
+    test_lag_groups = 8,
     lag_pad = 0, training_days = 30,
     genuine_training = FALSE, genuine_testing = FALSE
   )
   expect_equal(nrow(all_rows), 4L)
-  expect_equal(unique(all_rows$n_training_rows), 20L)
+  expect_equal(unique(all_rows$n_training_rows), 21L)
 })
 
 test_that("preprocessing metadata controls high-level training and testing", {
@@ -127,11 +133,13 @@ test_that("preprocessing metadata controls high-level training and testing", {
   )
 
   genuine <- DelphiRF(
-    processed, testing_start_date = cutoff, test_lag_groups = "0-2",
+    processed, testing_start_date = cutoff, working_scale = "log_value",
+    test_lag_groups = "0-2",
     lag_pad = 0, training_days = 30
   )
   unfiltered <- DelphiRF(
-    processed, testing_start_date = cutoff, test_lag_groups = "0-2",
+    processed, testing_start_date = cutoff, working_scale = "log_value",
+    test_lag_groups = "0-2",
     lag_pad = 0, training_days = 30,
     genuine_training = FALSE, genuine_testing = FALSE
   )
@@ -164,13 +172,13 @@ test_that("cross-validation applies genuine-event switches before fitting", {
     revision_forecast = function(train_data, test_data, ...) {
       seen$training[[length(seen$training) + 1L]] <- train_data$genuine_event
       seen$testing[[length(seen$testing) + 1L]] <- test_data$genuine_event
-      data.frame(wis = 0)
+      data.frame(wis_working = 0)
     },
     .package = "DelphiRF"
   )
 
   cv_revision_forecast(
-    df, test_lag = 8L, taus = 0.5,
+    df, test_lag = 8L, taus = 0.5, working_scale = "log_value",
     lambda_candidates = 0.1, gamma_candidates = 0.1,
     lag_pad_candidates = 0, n_folds = 2,
     genuine_training = FALSE, genuine_testing = TRUE

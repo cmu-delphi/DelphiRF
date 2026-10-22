@@ -28,9 +28,11 @@ add_lagged_terms(
 \item{temporal_resol}{Character. Temporal resolution, either \code{"weekly"} or \code{"daily"}.
 Default is \code{"weekly"}. Determines how lag shifts are applied.}
 
-\item{start_lag}{Numeric or \code{NULL}. The lag of the initial report, \eqn{l_{min}},
-against which revision magnitudes are measured. \code{NULL} (default) uses the
-smallest lag present in \code{df}.}
+\item{start_lag}{Numeric, data frame, or \code{NULL}. A numeric value applies one
+initial-report lag, \eqn{l_{min}}, to every episode. A data frame supplies
+episode-specific initial lags and must contain the columns named by
+\code{refd_col} and \code{lag_col}, with one starting lag per reference date.
+\code{NULL} (default) uses the smallest lag present in \code{df}.}
 }
 \value{
 A modified data frame with additional lagged columns.
@@ -43,10 +45,11 @@ user-defined time steps and temporal resolution (daily or weekly).
 \itemize{
 \item The revision magnitude for lag \code{k} is
 \code{log(value_lagk + 1) - log(value_start_lagk + 1)}, where the start value is
-the value of the same reference date at \code{start_lag}.
+the value of the source episode at its corresponding \code{start_lag}.
 \item If \code{temporal_resol = "weekly"}, lag values are divided by 7 to match weekly steps.
 \item If \code{temporal_resol = "daily"}, lag values are applied directly.
 \item The function groups data by \code{report_date}, sorts it by \code{refd_col}, and applies lags.
-\item New lagged columns are named as \code{"lagX"}, where \code{X} is the lag value.
+\item For each lag \code{X}, the function creates \verb{<value_col>_lagX},
+\verb{<value_col>_start_lagX}, and \verb{log_delta_<value_col>_lagX}.
 }
 }

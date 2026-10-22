@@ -2,7 +2,7 @@
 % Please edit documentation in R/feature_engineering.R
 \name{create_target_lookup}
 \alias{create_target_lookup}
-\title{Construct one raw-aware target per reference date}
+\title{Construct one target record per reference date}
 \usage{
 create_target_lookup(
   df,
@@ -10,8 +10,6 @@ create_target_lookup(
   refd_col,
   lag_col,
   ref_lag,
-  lower_tolerance = 0,
-  upper_tolerance = 0,
   temporal_resol = "daily",
   target_as_of_date = NULL
 )
@@ -19,34 +17,37 @@ create_target_lookup(
 \arguments{
 \item{df}{Raw reporting-triangle data frame.}
 
-\item{value_col}{Name or names of the value columns used to identify
-revisions. A change in any supplied column identifies a revision.}
+\item{value_col}{Name or names of the raw value columns. These columns are
+retained while constructing the raw report history used for target lookup.}
 
 \item{refd_col}{Name of the reference-date column.}
 
 \item{lag_col}{Name of the day-based reporting-lag column.}
 
-\item{ref_lag}{Central target lag, in days.}
-
-\item{lower_tolerance}{Non-negative days before \code{ref_lag} included in the
-genuine-revision search window.}
-
-\item{upper_tolerance}{Non-negative days after \code{ref_lag} included in the
-genuine-revision search window.}
+\item{ref_lag}{Requested target lag, in days. One value applies to the whole
+dataset.}
 
 \item{temporal_resol}{Either \code{"daily"} or \code{"weekly"}.}
 
 \item{target_as_of_date}{Optional date limiting target selection to reports
-available on or before that date. The effective upper target-window date
-is the earlier of this date and \code{reference_date + ref_lag + upper_tolerance}.}
+available on or before that date. Targets whose maturity dates fall after
+this date are unavailable. When \code{NULL}, the maximum raw report date is
+used.}
 }
 \value{
-A compact data frame with at most one target per reference date.
+A compact data frame with one target record per reference date,
+including the requested \code{target_lag} and fixed \code{target_date}. Before that
+date is available, \code{target_source_lag} and \code{target_value_source} are
+missing; afterward they record the observed source lag and either
+\code{"exact_release"} or \code{"carried_forward"}. If an episode has no report at
+or before \code{ref_lag}, its target remains unavailable after maturity.
 }
 \description{
-Selects the latest genuine value-changing revision in
-\verb{[ref_lag - lower_tolerance, ref_lag + upper_tolerance]}. If none exists,
-it falls back to the latest raw value at or before the lower boundary.
-The returned table is sparse (one row per reference date) and is intended
-to be joined after feature-grid filling.
+For a requested target lag \code{L}, the target matures on
+\code{reference_date + L}. Its value is the latest raw report available at or
+before lag \code{L}; an exact release at lag \code{L} is not required. The requested
+target lag and maturity date are fixed across episodes, while the source
+report lag is retained separately for auditing. The returned table is sparse
+(one row per reference date) and is intended to be joined after feature-grid
+filling.
 }

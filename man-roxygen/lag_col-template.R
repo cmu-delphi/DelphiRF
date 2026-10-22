@@ -1,2 +1,2 @@
-#' @param lag_col Value supplied for `lag_col`.
-
+#' @param lag_col Name of the reporting-lag column: days from the reference
+#'   date to the report date.

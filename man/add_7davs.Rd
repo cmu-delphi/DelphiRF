@@ -25,7 +25,12 @@ grouped by \code{report_date}, which is determined using the reference date and 
 \details{
 \itemize{
 \item The function first computes \code{report_date} as \code{refd_col + lag_col}.
-\item It then calculates the \strong{7-day moving average} (\verb{7dav}) for each \code{report_date},
-ensuring proper ordering of reference dates.
+\item It then calculates the trailing \strong{7-day moving average} (\verb{7dav}) over
+reference dates within each \code{report_date}, ensuring proper ordering of
+reference dates.
+\item The first six reference dates in each \code{report_date} group have no
+complete 7-day window, so their \code{value_7dav} is \code{NA}. After
+\code{\link[=fill_missing_updates]{fill_missing_updates()}} these are the first six reference dates of the
+series, at every lag.
 }
 }

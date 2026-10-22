@@ -5,3 +5,4 @@
 ^cache$
 ^receiving$
 ^.*\.DS_Store$
+^LICENSE\.md$

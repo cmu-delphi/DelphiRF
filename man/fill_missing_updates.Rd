@@ -2,14 +2,7 @@
 % Please edit documentation in R/preprocessing.R
 \name{fill_missing_updates}
 \alias{fill_missing_updates}
-\title{Fill missing updates in a time series dataset with lagged values
-Get pivot table, filling NANs. If there is no update on issue date D but
-previous reports exist for issue date \code{D_p < D}, all the dates between
-\code{D_p} and \code{D} are filled with the reported value on date \code{D_p}. If there is
-no update for any previous issue date, fill in with 0.
-This function creates a complete reference-report date grid and fills in missing updates.
-If an update is missing on a certain issue date but previous updates exist,
-it fills gaps with the last available value. If no previous updates exist, it fills with \code{0}.}
+\title{Fill missing updates in a reporting triangle}
 \usage{
 fill_missing_updates(
   df,
@@ -17,7 +10,8 @@ fill_missing_updates(
   refd_col,
   lag_col,
   temporal_resol = "daily",
-  max_report_override = NULL
+  max_report_override = NULL,
+  max_lag = NULL
 )
 }
 \arguments{
@@ -26,23 +20,29 @@ fill_missing_updates(
 \item{value_col}{A string specifying the column name containing the values
 to be filled and processed.}
 
-\item{refd_col}{Value supplied for \code{refd_col}.}
+\item{refd_col}{Name of the reference-date column.}
 
-\item{lag_col}{Value supplied for \code{lag_col}.}
+\item{lag_col}{Name of the reporting-lag column: days from the reference
+date to the report date.}
 
 \item{temporal_resol}{A string specifying the temporal resolution of the data.
 Accepts \code{"daily"} (default) or \code{"weekly"} for processing in daily or weekly intervals.}
 
 \item{max_report_override}{Optional maximum report date through which missing
 updates should be generated.}
+
+\item{max_lag}{Optional largest reporting lag, in days, to keep on the grid.
+\code{NULL} (default) keeps every lag. Carrying values forward along report
+dates never needs a larger lag, so rows up to \code{max_lag} are unchanged.}
+}
+\value{
+A data frame on the completed reporting grid with \code{value_raw},
+\code{reference_date}, \code{report_date}, and \code{lag} columns.
 }
 \description{
-Fill missing updates in a time series dataset with lagged values
-Get pivot table, filling NANs. If there is no update on issue date D but
-previous reports exist for issue date \code{D_p < D}, all the dates between
-\code{D_p} and \code{D} are filled with the reported value on date \code{D_p}. If there is
-no update for any previous issue date, fill in with 0.
-This function creates a complete reference-report date grid and fills in missing updates.
-If an update is missing on a certain issue date but previous updates exist,
-it fills gaps with the last available value. If no previous updates exist, it fills with \code{0}.
+Creates a complete reference-date/report-date grid, carries the latest
+previously reported value forward, and uses zero before the first report.
+A missing value counts as no update, so the previous value is carried
+forward. Two rows for the same reference and report date with different
+values are an error that lists the conflicting dates.
 }

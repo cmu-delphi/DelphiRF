@@ -1,2 +1,2 @@
-#' @param geo_level Value supplied for `geo_level`.
-
+#' @param geo_level Geographic level label, such as `"state"`. Used only
+#'   in the model cache folder name.

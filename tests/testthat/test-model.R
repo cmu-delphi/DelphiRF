@@ -12,8 +12,6 @@ geo_level <- "state"
 signal_suffix <- ""
 lambda <- 0.1
 gamma <- 0.1
-sqrt_max_raw <- 1
-kept_bins <- "sqrty0"
 test_lag_group <- 1
 model_save_dir <- tempfile("delphirf-model-cache-")
 geo <- "pa"
@@ -61,7 +59,7 @@ test_that("testing the generation of model filename prefix", {
   unlink(file.path(model_save_dir, "chng_outpatient_state"), recursive = TRUE)
 })
 
-test_that("model APIs default to the persistent user cache", {
+test_that("model APIs default to the persistent user cache, except cross-validation", {
   expected_default <- quote(default_model_save_dir())
   expected_dir <- if (getRversion() >= "4.0.0") {
     tools::R_user_dir("DelphiRF", "cache")
@@ -71,7 +69,8 @@ test_that("model APIs default to the persistent user cache", {
 
   expect_identical(formals(generate_filename)$model_save_dir, expected_default)
   expect_identical(formals(revision_forecast)$model_save_dir, expected_default)
-  expect_identical(formals(cv_revision_forecast)$model_save_dir, expected_default)
+  # Fold models are tuning by-products and go to a temporary directory.
+  expect_null(formals(cv_revision_forecast)$model_save_dir)
   expect_identical(formals(DelphiRF)$model_save_dir, expected_default)
   expect_identical(default_model_save_dir(), expected_dir)
 })
@@ -99,9 +98,14 @@ test_that("testing prediction column exponentiation", {
   expected <- data.frame(
     reference_date = 5,
     predicted_tau0.1 = exp(c(0, 1, 1)) - 1,
-    predicted_tau0.5 = exp(c(2, 0, 1)) - 1
+    predicted_tau0.5 = exp(c(2, 0, 1)) - 1,
+    predicted_tau0.1_working = c(0, 1, 1),
+    predicted_tau0.5_working = c(2, 0, 1)
   )
-  expect_equal(expected, exponentiate_preds(input, c(0.1, 0.5)))
+  expect_equal(expected, exponentiate_preds(input, c(0.1, 0.5), working_scale = "log_value"))
+  expect_error(exponentiate_preds(input, c(0.1, 0.5)), "working_scale")
+  expect_error(exponentiate_preds(input, c(0.1, 0.5), working_scale = "log"),
+               "working_scale must be")
 
 
   # Realistic test df
@@ -114,16 +118,15 @@ test_that("testing prediction column exponentiation", {
 
   expected <- test_data
   for (col_name in pred_cols){
+    expected[[paste0(col_name, "_working")]] <- test_data[[col_name]]
     expected[[col_name]] <- exp(test_data[[col_name]]) - 1
   }
 
-  result <- exponentiate_preds(test_data, TAUS, value_type = "fraction",
-                               fraction_input = "value")
+  result <- exponentiate_preds(test_data, TAUS, working_scale = "log_value")
   expect_equal(result, expected)
 
   ratio_result <- exponentiate_preds(
-    input, c(0.1, 0.5), value_type = "fraction",
-    fraction_input = "numerator_denominator"
+    input, c(0.1, 0.5), working_scale = "log_ratio"
   )
   expect_equal(
     ratio_result$predicted_tau0.1,
@@ -133,6 +136,8 @@ test_that("testing prediction column exponentiation", {
     ratio_result$predicted_tau0.5,
     exp(input$predicted_tau0.5)
   )
+  expect_equal(ratio_result$predicted_tau0.1_working, input$predicted_tau0.1)
+  expect_equal(ratio_result$predicted_tau0.5_working, input$predicted_tau0.5)
 })
 
 test_that("testing generating or loading the model", {
@@ -148,20 +153,73 @@ test_that("testing generating or loading the model", {
                                        model_save_dir=model_save_dir)
   # Generate the model and check again
   obj <- get_model(model_file_name, train_data, covariates, response, TAUS,
-                   sqrt_max_raw, kept_bins,
                    lambda, gamma, "glpk", train_models=TRUE)
-  expect_true(file.exists(model_file_name))
-  created <- file.info(model_file_name)$ctime
-  expect_equal(attr(obj, "sqrt_max_raw"), sqrt_max_raw)
+  saved <- attr(obj, "model_path")
+  # The file name carries the first eight characters of the contract hash.
+  expect_match(basename(saved), "_c[0-9a-f]{8}[.]rds$")
+  expect_equal(sub("_c[0-9a-f]{8}[.]rds$", ".rds", saved), model_file_name)
+  expect_true(file.exists(saved))
+  created <- file.info(saved)$ctime
+  expect_equal(attr(obj, "gamma"), gamma)
+  expect_equal(attr(obj, "lambda"), lambda)
 
   # Check that the model was not generated again.
   # Load existed model
   obj <- get_model(model_file_name, train_data, covariates, response, TAUS,
-                   sqrt_max_raw, kept_bins,
                    lambda, gamma, "glpk", train_models=FALSE)
-  expect_equal(file.info(model_file_name)$ctime, created)
+  expect_equal(attr(obj, "model_path"), saved)
+  expect_equal(file.info(saved)$ctime, created)
+  # No temporary file is left behind by the atomic write.
+  expect_equal(list.files(dirname(saved), all.files = TRUE, no.. = TRUE), basename(saved))
 
   unlink(file.path(model_save_dir, "chng_outpatient_state"), recursive = TRUE)
+})
+
+test_that("each fitting contract has its own cache file and a mismatch is caught", {
+  cache <- tempfile("contract-cache-")
+  path <- file.path(cache, "model.rds")
+  on.exit(unlink(cache, recursive = TRUE))
+  contract <- list(training_end_date = "2022-01-01", target_lag = 14)
+  fit <- function(train_models, data = train_data, taus = c(0.1, 0.5, 0.9),
+                  fit_contract = contract, lam = lambda) {
+    get_model(path, data, covariates, response, taus, lam, gamma, "glpk",
+              train_models = train_models, fit_contract = fit_contract)
+  }
+
+  fitted <- fit(TRUE)
+  stored <- attr(fitted, "fit_contract")
+  expect_equal(stored$taus, c(0.1, 0.5, 0.9))
+  expect_equal(stored$covariates, covariates)
+  expect_equal(stored$target_lag, 14)
+
+  expect_message(loaded <- fit(FALSE), "Loading from")
+  expect_equal(coef(loaded), coef(fitted))
+  expect_equal(attr(loaded, "model_path"), attr(fitted, "model_path"))
+
+  # A different contract maps to a different file: it is never loaded in
+  # place of the first model, and both files are kept.
+  shifted <- train_data
+  shifted$log_value_target <- shifted$log_value_target + 1
+  variants <- list(
+    taus = function() fit(FALSE, taus = c(0.25, 0.5, 0.75)),
+    data = function() fit(FALSE, data = shifted),
+    cutoff = function() fit(FALSE, fit_contract = modifyList(contract, list(training_end_date = "2022-02-01"))),
+    lambda = function() fit(FALSE, lam = 1)
+  )
+  for (name in names(variants)) {
+    expect_warning(other <- variants[[name]](), "does not exist; training new model")
+    expect_false(identical(attr(other, "model_path"), attr(fitted, "model_path")), info = name)
+  }
+  expect_length(list.files(cache), 1L + length(variants))
+
+  # Safety net: a file whose stored contract differs from its name is rejected.
+  wrong <- fitted
+  attr(wrong, "fit_contract")$taus <- c(0.25, 0.5, 0.75)
+  saveRDS(wrong, attr(fitted, "model_path"))
+  expect_error(fit(FALSE), "differing field\\(s\\): taus")
+  attr(wrong, "fit_contract") <- NULL
+  saveRDS(wrong, attr(fitted, "model_path"))
+  expect_error(fit(FALSE), "has no fitting contract")
 })
 
 test_that("quantreg backend implements non-negative case weights", {
@@ -194,12 +252,35 @@ test_that("default quantreg backend supports multiple quantiles and records back
   path <- tempfile(fileext = ".rds")
   obj <- get_model(
     path, train_data, covariates, response, 0.5,
-    sqrt_max_raw, kept_bins, lambda, gamma, "glpk", TRUE,
+    lambda, gamma, "glpk", TRUE,
     model_backend = "quantreg"
   )
   expect_s3_class(obj, "delphirf_quantreg_lasso")
   expect_equal(attr(obj, "model_backend"), "quantreg")
   unlink(path)
+})
+
+test_that("duplicate quantile levels are fitted and predicted only once", {
+  x <- cbind(first = seq_len(20), second = (seq_len(20))^2)
+  y <- 3 * x[, "first"] - 0.5 * x[, "second"]
+  fit <- fit_quantreg_lasso(x, y, taus = c(0.5, 0.1, 0.5, 0.1), lambda = 0)
+
+  expect_identical(fit$taus, c(0.5, 0.1))
+  expect_equal(ncol(fit$coefficients), 2L)
+
+  test_data <- data.frame(
+    first = x[1:3, "first"],
+    second = x[1:3, "second"],
+    response = y[1:3]
+  )
+  result <- get_prediction(
+    test_data, taus = c(0.5, 0.1, 0.5, 0.1),
+    covariates = c("first", "second"), response = "response", obj = fit
+  )
+  expect_equal(
+    grep("^predicted_tau", names(result), value = TRUE),
+    c("predicted_tau0.5", "predicted_tau0.1")
+  )
 })
 
 test_that("quantreg backend handles rank-deficient predictors", {
@@ -219,12 +300,50 @@ test_that("quantreg backend handles rank-deficient predictors", {
   expect_equal(nrow(fit$coefficients), ncol(x) + 1L)
 })
 
+test_that("named prediction data are validated and reordered", {
+  x <- data.frame(first = seq_len(20), second = (seq_len(20))^2)
+  y <- 3 * x$first - 0.5 * x$second
+  fit <- fit_quantreg_lasso(x, y, taus = 0.5, lambda = 0)
+
+  expected <- predict(fit, x[1:4, , drop = FALSE])
+  reordered <- x[1:4, c("second", "first"), drop = FALSE]
+  expect_equal(predict(fit, reordered), expected)
+
+  expect_error(
+    predict(fit, x[1:4, "first", drop = FALSE]),
+    "missing: second"
+  )
+  with_extra <- x[1:4, , drop = FALSE]
+  with_extra$other <- 1
+  expect_error(predict(fit, with_extra), "unexpected: other")
+
+  duplicated <- as.matrix(x[1:4, , drop = FALSE])
+  colnames(duplicated) <- c("first", "first")
+  expect_error(
+    predict(fit, duplicated),
+    "missing: second; duplicated: first"
+  )
+})
+
+test_that("unnamed prediction matrices retain positional behavior", {
+  x <- cbind(first = seq_len(20), second = (seq_len(20))^2)
+  y <- 3 * x[, "first"] - 0.5 * x[, "second"]
+  fit <- fit_quantreg_lasso(x, y, taus = 0.5, lambda = 0)
+  newx <- unname(x[1:4, , drop = FALSE])
+
+  expect_equal(predict(fit, newx), predict(fit, x[1:4, , drop = FALSE]))
+  expect_error(
+    predict(fit, newx[, 1, drop = FALSE]),
+    "does not have the fitted number of predictors"
+  )
+})
+
 test_that("optional quantgen backend records its backend", {
   skip_if_not_installed("quantgen")
   legacy_path <- tempfile(fileext = ".rds")
   legacy <- get_model(
     legacy_path, train_data, covariates, response, 0.5,
-    sqrt_max_raw, kept_bins, lambda, gamma, "glpk", TRUE,
+    lambda, gamma, "glpk", TRUE,
     model_backend = "quantgen"
   )
   expect_equal(attr(legacy, "model_backend"), "quantgen")
@@ -245,7 +364,6 @@ test_that("testing making predictions", {
                                        model_save_dir=model_save_dir)
 
   obj <- get_model(model_file_name, train_data, covariates, response, tau,
-                   sqrt_max_raw, kept_bins,
                    lambda, gamma, "glpk", train_models=TRUE)
 
   expect_error(get_prediction(test_data, tau, covariates, response, NULL),
@@ -297,88 +415,6 @@ test_that("median-only WIS equals absolute error for either error sign", {
   expect_equal(result$wis, c(2, 2, 0))
   expect_equal(result$wis, abs(test_data$predicted_tau0.5 - test_data$response))
 })
-
-test_that("testing adding square root scale with rare bin removal", {
-  sample_data <- data.frame(value_7dav = c(1, 4, 9, 16, 25, 36, 49, 64))
-  sqrt_max_raw_value <- sqrt(max(sample_data$value_7dav))
-
-  result <- add_sqrtscale(sample_data, sqrt_max_raw_value, rare_thresh = 0.01)
-  transformed_data <- result$data
-  kept_bins <- result$kept_bins
-
-  # Check that only the kept bins are present
-  expect_true(all(kept_bins %in% colnames(transformed_data)))
-
-  # Check content of each kept bin
-  if ("sqrty0" %in% kept_bins) {
-    expect_equal(transformed_data$sqrty0,
-                 ifelse(sample_data$value_7dav < (sqrt_max_raw_value * (1/4))^2, 1, 0))
-  }
-  if ("sqrty1" %in% kept_bins) {
-    expect_equal(transformed_data$sqrty1,
-                 ifelse(sample_data$value_7dav >= (sqrt_max_raw_value * (1/4))^2 &
-                          sample_data$value_7dav < (sqrt_max_raw_value * (2/4))^2, 1, 0))
-  }
-  if ("sqrty2" %in% kept_bins) {
-    expect_equal(transformed_data$sqrty2,
-                 ifelse(sample_data$value_7dav >= (sqrt_max_raw_value * (2/4))^2 &
-                          sample_data$value_7dav < (sqrt_max_raw_value * (3/4))^2, 1, 0))
-  }
-})
-
-test_that("add_sqrtscale handles bin creation, rare removal, and return structure correctly", {
-  # --- Test 1: Basic bin creation ---
-  sample_data1 <- data.frame(value_7dav = c(1, 4, 9, 16, 25, 36, 49, 64))
-  sqrt_max1 <- sqrt(max(sample_data1$value_7dav))
-  result1 <- add_sqrtscale(sample_data1, sqrt_max1, rare_thresh = 0.01)
-  df1 <- result1$data
-  bins1 <- result1$kept_bins
-
-  expect_true(all(paste0("sqrty", 0:2) %in% bins1))
-  expect_true(all(bins1 %in% colnames(df1)))
-
-  # --- Test 2: Rare bins dropped ---
-  sample_data2 <- data.frame(value_7dav = c(1, 2, 3, 4, 5, 6, 7, 64))
-  sqrt_max2 <- sqrt(max(sample_data2$value_7dav))
-  result2 <- add_sqrtscale(sample_data2, sqrt_max2, rare_thresh = 0.2)
-  df2 <- result2$data
-  bins2 <- result2$kept_bins
-
-  expect_lt(length(bins2), 3)
-  expect_true(all(bins2 %in% colnames(df2)))
-
-  # --- Test 3: All bins dropped if all are rare ---
-  sample_data3 <- data.frame(value_7dav = c(100, 200, 300))
-  sqrt_max3 <- sqrt(max(sample_data3$value_7dav))
-  result3 <- add_sqrtscale(sample_data3, sqrt_max3, rare_thresh = 0.9)
-  df3 <- result3$data
-  bins3 <- result3$kept_bins
-
-  expect_equal(length(bins3), 0)
-  expect_false(any(grepl("^sqrty", colnames(df3))))
-
-  # --- Test 4: Edge threshold bin retention ---
-  sample_data4 <- data.frame(value_7dav = rep(c(1, 16, 36), times = c(3, 3, 4)))
-  sqrt_max4 <- sqrt(max(sample_data4$value_7dav))
-  result4 <- add_sqrtscale(sample_data4, sqrt_max4, rare_thresh = 0.3)
-  df4 <- result4$data
-  bins4 <- result4$kept_bins
-
-  expect_true(length(bins4) >= 1)
-  expect_true(all(bins4 %in% colnames(df4)))
-
-  # --- Test 5: Return structure correctness ---
-  sample_data5 <- data.frame(value_7dav = c(1, 4, 9, 16))
-  sqrt_max5 <- sqrt(max(sample_data5$value_7dav))
-  result5 <- add_sqrtscale(sample_data5, sqrt_max5)
-
-  expect_true(is.list(result5))
-  expect_true("data" %in% names(result5))
-  expect_true("kept_bins" %in% names(result5))
-  expect_true(is.data.frame(result5$data))
-  expect_true(is.character(result5$kept_bins))
-})
-
 
 test_that("testing data_filteration", {
   data <- data.frame(lag = -5:5, value = rnorm(11))
@@ -435,6 +471,7 @@ test_that("revision_forecast with train_models=FALSE loads cached model and prod
     data.frame(
       reference_date   = dates,
       report_date      = dates + 3L,
+      target_date      = dates + 3L,
       lag              = 3L,
       value_7dav       = runif(nn, 0, 1),
       log_value_7dav   = rnorm(nn),
@@ -462,7 +499,8 @@ test_that("revision_forecast with train_models=FALSE loads cached model and prod
     geo_level        = "state",
     geo              = "pa",
     training_days    = nn_train,
-    make_predictions = TRUE
+    make_predictions = TRUE,
+    working_scale    = "log_value"
   )
 
   result_fit <- do.call(
@@ -480,7 +518,44 @@ test_that("revision_forecast with train_models=FALSE loads cached model and prod
   expect_equal(result_fit$predicted_tau0.5, result_cached$predicted_tau0.5)
 })
 
-test_that("DelphiRF keeps the testing cutoff out of training", {
+test_that("revision_forecast without predictions still fits every lambda-gamma model", {
+  tmpdir <- tempfile()
+  dir.create(tmpdir)
+  on.exit(unlink(tmpdir, recursive = TRUE))
+
+  set.seed(7)
+  nn <- 60
+  dates <- seq(as.Date("2021-01-01"), by = "day", length.out = nn)
+  train_data <- data.frame(
+    reference_date   = dates,
+    report_date      = dates + 3L,
+    target_date      = dates + 3L,
+    lag              = 3L,
+    log_value_7dav   = rnorm(nn),
+    log_value_target = rnorm(nn),
+    value_7dav_diff  = rnorm(nn),
+    value_slope_diff = rnorm(nn)
+  )
+
+  result <- revision_forecast(
+    train_data = train_data, test_data = train_data[0, ], taus = 0.5,
+    smoothed_target = FALSE, params_list = "log_value_7dav",
+    lambda = c(0.1, 1), gamma = c(0.1, 1),
+    model_save_dir = tmpdir, indicator = "test", signal = "sig",
+    geo = "pa", training_days = nn, working_scale = "log_value",
+    train_models = TRUE, make_predictions = FALSE
+  )
+
+  expect_equal(nrow(result), 0L)
+  saved <- list.files(tmpdir, pattern = "[.]rds$", recursive = TRUE)
+  expect_length(saved, 4L)
+  for (combo in c("lambda0.1_gamma0.1", "lambda0.1_gamma1",
+                  "lambda1_gamma0.1", "lambda1_gamma1")) {
+    expect_true(any(grepl(combo, saved, fixed = TRUE)), info = combo)
+  }
+})
+
+test_that("DelphiRF trains on releases reported up to and including the cutoff", {
   cutoff <- as.Date("2024-01-10")
   n_train <- 12L
   n_test <- 2L
@@ -509,14 +584,95 @@ test_that("DelphiRF keeps the testing cutoff out of training", {
   result <- DelphiRF(
     df,
     testing_start_date = cutoff,
+    working_scale = "log_value",
     test_lag_groups = 8,
     lag_pad = 0,
     training_days = 30
   )
 
   expect_s3_class(result, "tbl_df")
-  expect_true(all(result$latest_training_report_date < cutoff))
-  expect_equal(unique(result$latest_training_report_date), cutoff - 1L)
+  expect_true(all(result$latest_training_report_date <= cutoff))
+  expect_equal(unique(result$latest_training_report_date), cutoff)
+})
+
+test_that("DelphiRF honors an explicit training end date", {
+  cutoff <- as.Date("2024-01-10")
+  training_end <- cutoff - 3L
+  dates <- seq(cutoff - 12L, cutoff + 1L, by = "day")
+  values <- seq_along(dates)
+  df <- data.frame(
+    reference_date = dates,
+    report_date = dates,
+    target_date = dates,
+    genuine_event = TRUE,
+    lag = 8L,
+    value_7dav = values,
+    value_7dav_lag7 = values,
+    log_value_7dav = log1p(values),
+    log_value_7dav_lag7 = log1p(values)
+  )
+
+  local_mocked_bindings(
+    revision_forecast = function(train_data, test_data, training_end_date, ...) {
+      test_data$latest_training_report_date <- max(train_data$report_date)
+      test_data$received_training_end_date <- as.Date(training_end_date)
+      test_data
+    },
+    .package = "DelphiRF"
+  )
+
+  result <- DelphiRF(
+    df,
+    testing_start_date = cutoff,
+    working_scale = "log_value",
+    training_end_date = training_end,
+    test_lag_groups = 8,
+    lag_pad = 0,
+    training_days = 30,
+    genuine_training = FALSE,
+    genuine_testing = FALSE
+  )
+
+  expect_true(all(result$latest_training_report_date <= training_end))
+  expect_equal(unique(result$received_training_end_date), training_end)
+  expect_error(
+    DelphiRF(df, testing_start_date = cutoff,
+    working_scale = "log_value",
+             training_end_date = cutoff + 1L),
+    "cannot be after the forecast origin"
+  )
+})
+
+test_that("forecast entry points validate the training cutoff", {
+  minimal <- data.frame(
+    report_date = as.Date("2024-01-01"),
+    target_date = as.Date("2024-01-01"),
+    lag = 1
+  )
+
+  expect_error(
+    revision_forecast(
+      minimal, minimal[0, ], taus = 0.5,
+      working_scale = "log_value", training_end_date = "not-a-date"
+    ),
+    "training_end_date must be empty or one valid date"
+  )
+  expect_error(
+    revision_forecast(
+      minimal, minimal[0, ], taus = 0.5,
+      working_scale = "log_value",
+      training_end_date = c("2024-01-01", "2024-01-02")
+    ),
+    "training_end_date must be empty or one valid date"
+  )
+  expect_error(
+    cv_revision_forecast(
+      minimal, test_lag = 1, taus = 0.5,
+      working_scale = "log_value", training_end_date = "not-a-date",
+      genuine_training = FALSE, genuine_testing = FALSE
+    ),
+    "training_end_date must be empty or one valid date"
+  )
 })
 
 test_that("cross-validation respects its training window", {
@@ -543,13 +699,13 @@ test_that("cross-validation respects its training window", {
         train_data$target_date
       seen$validation_target_dates[[length(seen$validation_target_dates) + 1L]] <-
         test_data$target_date
-      data.frame(wis = 0)
+      data.frame(wis_working = 0)
     },
     .package = "DelphiRF"
   )
 
   cv_revision_forecast(
-    df, test_lag = 8L, taus = 0.5,
+    df, test_lag = 8L, taus = 0.5, working_scale = "log_value",
     lambda_candidates = 0.1, gamma_candidates = 0.1,
     lag_pad_candidates = 0, n_folds = 2,
     training_end_date = training_end, training_days = 10,
@@ -590,4 +746,138 @@ test_that("get_prediction returns monotone quantiles", {
                            fake_model, make_evaluation = FALSE)
   expect_equal(as.numeric(result[1, paste0("predicted_tau", c(.1,.2,.5,.8,.9))]),
                c(0.1, 0.2, 0.3, 0.4, 0.9))
+})
+
+test_that("forecasts carry WIS on both the working and the reporting scale", {
+  cache <- tempfile("wis-cache-")
+  on.exit(unlink(cache, recursive = TRUE))
+  set.seed(3)
+  nn <- 60
+  dates <- seq(as.Date("2021-01-01"), by = "day", length.out = nn)
+  train <- data.frame(reference_date = dates, report_date = dates + 3L, target_date = dates + 3L, lag = 3L,
+                      log_value_7dav = rnorm(nn, 5), log_value_target = rnorm(nn, 5),
+                      value_7dav_diff = runif(nn), value_slope_diff = runif(nn))
+  test <- train[1:5, ]
+  taus <- c(0.1, 0.5, 0.9)
+  for (scale in c("log_value", "log_ratio")) {
+    result <- revision_forecast(train, test, taus = taus, smoothed_target = FALSE,
+                                params_list = "log_value_7dav", working_scale = scale,
+                                model_save_dir = cache)
+    expect_false("wis" %in% names(result))
+    working <- as.matrix(result[paste0("predicted_tau", taus, "_working")])
+    reporting <- as.matrix(result[paste0("predicted_tau", taus)])
+    truth <- result$log_value_target
+    truth_reporting <- if (scale == "log_value") exp(truth) - 1 else exp(truth)
+    for (i in seq_len(nrow(result))) {
+      expect_equal(result$wis_working[i],
+                   weighted_interval_score(taus, working[i, ] - truth[i]))
+      expect_equal(result$wis_reporting[i],
+                   weighted_interval_score(taus, reporting[i, ] - truth_reporting[i]))
+    }
+  }
+})
+
+test_that("a group whose test rows all lack predictors returns no forecasts", {
+  cache <- tempfile("empty-cache-")
+  on.exit(unlink(cache, recursive = TRUE))
+  nn <- 40
+  dates <- seq(as.Date("2021-01-01"), by = "day", length.out = nn)
+  train <- data.frame(reference_date = dates, report_date = dates + 3L, target_date = dates + 3L, lag = 3L,
+                      log_value_7dav = rnorm(nn), log_value_target = rnorm(nn),
+                      value_7dav_diff = runif(nn), value_slope_diff = runif(nn))
+  test <- train[1:3, ]
+  test$log_value_7dav <- NA_real_
+  result <- revision_forecast(train, test, taus = c(0.1, 0.5, 0.9), smoothed_target = FALSE,
+                              params_list = "log_value_7dav", working_scale = "log_value",
+                              model_save_dir = cache)
+  expect_equal(nrow(result), 0L)
+  # The model is still fitted and saved for this group.
+  expect_length(list.files(cache, pattern = "[.]rds$", recursive = TRUE), 1L)
+})
+
+test_that("cross-validation writes fold models to a temporary directory", {
+  df <- data.frame(
+    reference_date = as.Date("2024-01-01") + 0:39,
+    report_date = as.Date("2024-01-02") + 0:39,
+    target_date = as.Date("2024-02-01"), lag = 8L
+  )
+  seen <- new.env(parent = emptyenv())
+  local_mocked_bindings(
+    revision_forecast = function(train_data, test_data, model_save_dir, ...) {
+      seen$dir <- model_save_dir
+      dir.create(model_save_dir, recursive = TRUE, showWarnings = FALSE)
+      data.frame(wis_working = 0)
+    },
+    .package = "DelphiRF"
+  )
+  cv_revision_forecast(df, test_lag = 8L, taus = 0.5, working_scale = "log_value",
+                       lambda_candidates = 0.1, gamma_candidates = 0.1,
+                       lag_pad_candidates = 0, n_folds = 2,
+                       genuine_training = FALSE, genuine_testing = FALSE)
+  expect_true(startsWith(normalizePath(dirname(seen$dir)), normalizePath(tempdir())))
+  expect_false(identical(seen$dir, default_model_save_dir()))
+  expect_false(dir.exists(seen$dir))
+})
+
+test_that("training rows whose target matures after the training end date are dropped", {
+  cache <- tempfile("maturity-cache-")
+  on.exit(unlink(cache, recursive = TRUE))
+  set.seed(5)
+  nn <- 40
+  dates <- seq(as.Date("2024-01-01"), by = "day", length.out = nn)
+  train <- data.frame(reference_date = dates, report_date = dates + 2L, lag = 2L,
+                      target_date = dates + 7L, log_value_7dav = rnorm(nn),
+                      log_value_target = rnorm(nn), value_7dav_diff = runif(nn),
+                      value_slope_diff = runif(nn))
+  end <- dates[30]
+  fit_once <- function(data) {
+    revision_forecast(data, data[1:2, ], taus = 0.5, smoothed_target = FALSE,
+                      params_list = "log_value_7dav", working_scale = "log_value",
+                      training_end_date = as.character(end), model_save_dir = cache,
+                      make_predictions = FALSE)
+    path <- list.files(cache, pattern = "[.]rds$", full.names = TRUE, recursive = TRUE)
+    model <- readRDS(path)
+    unlink(path)
+    model
+  }
+  # Reported by the end date but maturing after it: these rows carry future
+  # target values and must not be used.
+  expect_true(any(train$report_date <= end & train$target_date > end))
+  model <- fit_once(train)
+  expect_length(model$training_weights, sum(train$target_date <= end))
+
+  # Changing the targets of rows that are not yet mature changes nothing.
+  leaked <- train
+  leaked$log_value_target[leaked$target_date > end] <- 1e6
+  expect_equal(coef(fit_once(leaked)), coef(model))
+
+  expect_error(revision_forecast(train[setdiff(names(train), "target_date")], train[1:2, ],
+                                 taus = 0.5, params_list = "log_value_7dav",
+                                 working_scale = "log_value", model_save_dir = cache),
+               "target_date")
+})
+
+test_that("a constant training response is fitted and saved like any other", {
+  cache <- tempfile("constant-cache-")
+  on.exit(unlink(cache, recursive = TRUE))
+  set.seed(9)
+  nn <- 30
+  dates <- as.Date("2024-01-01") + 0:(nn - 1)
+  train <- data.frame(reference_date = dates, report_date = dates + 2L, target_date = dates + 2L,
+                      lag = 2L, log_value_7dav = rnorm(nn), value_7dav_diff = runif(nn),
+                      value_slope_diff = runif(nn), log_value_target = log1p(50))
+  test <- train[1:3, ]
+  test$log_value_7dav[2] <- NA
+  result <- revision_forecast(train, test, taus = c(0.1, 0.5, 0.9), smoothed_target = FALSE,
+                              params_list = "log_value_7dav", lambda = c(0.1, 1),
+                              gamma = c(0.1, 1), working_scale = "log_value",
+                              model_save_dir = cache)
+  # One forecast set per lambda-gamma pair, for the rows with every predictor.
+  expect_setequal(paste(result$lambda, result$gamma),
+                  c("0.1 0.1", "0.1 1", "1 0.1", "1 1"))
+  expect_equal(nrow(result), 4L * 2L)
+  expect_false(as.Date("2024-01-02") %in% result$reference_date)
+  expect_equal(result$predicted_tau0.5, rep(50, nrow(result)), tolerance = 1e-5)
+  # Every model is saved for later use.
+  expect_length(list.files(cache, pattern = "[.]rds$", recursive = TRUE), 4L)
 })

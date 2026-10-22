@@ -13,12 +13,8 @@ get_weekofmonth(date)
 An integer indicating the week number within the month.
 }
 \description{
-Consider Epiweeks. Notice that
-If there are 4, 5 or 6 weeks in total, the ith weeks is labeled as i
-and the dates in the last week this month are actually in the same
-week with the dates in the 1st week next month and those dates are
-sparse. Thus, we assign the dates in the last week to the 1st week.
-If there are 6 weeks in total, the 1st, 2nd, 3rd, 4th, 5th, 6th weeks
-are labeled as c(1, 2, 3, 4, 5, 1) which means we will merge the first,
-second and the last weeks together.
+Weeks run Sunday to Saturday. The i-th week of the month is labelled i,
+except the month's last week: its dates share a week with the first days
+of the next month and are sparse, so they are labelled 1. A month spanning
+six weeks is therefore labelled 1, 2, 3, 4, 5, 1.
 }

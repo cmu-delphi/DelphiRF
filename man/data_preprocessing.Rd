@@ -15,8 +15,6 @@ data_preprocessing(
   value_type = "count",
   temporal_resol = "daily",
   smoothed = FALSE,
-  target_lag_lower_tolerance = 0,
-  target_lag_upper_tolerance = 0,
   target_as_of_date = NULL,
   revision_start_lag = NULL
 )
@@ -26,35 +24,37 @@ data_preprocessing(
 
 \item{value_col}{Character vector specifying the column(s) containing values.}
 
-\item{refd_col}{Character specifying the reference column for merging operations.}
+\item{refd_col}{Name of the raw reference-date column.}
 
-\item{lag_col}{Character specifying the column representing lag information.}
+\item{lag_col}{Name of the raw reporting-lag column, measured in days.}
 
-\item{ref_lag}{Integer specifying the reference lag value.}
+\item{ref_lag}{Target lag \eqn{L}, in days. The target of each reference
+date is its latest raw report at or before lag \eqn{L}.}
 
-\item{suffixes}{Character vector containing suffixes for value columns.}
+\item{suffixes}{Suffixes used to distinguish numerator and denominator
+feature columns when two value columns are supplied.}
 
-\item{lagged_term_list}{Numeric vector specifying the list of lags to be considered.}
+\item{lagged_term_list}{Reference-date gaps, in days, for the lagged value
+and revision-magnitude features (see \code{\link[=add_lagged_terms]{add_lagged_terms()}}). When \code{NULL},
+\code{c(1, 7)} for daily data and \code{c(7, 14)} for weekly data.}
 
 \item{value_type}{Character indicating the type of values ('count' or 'fraction').}
 
 \item{temporal_resol}{Character specifying temporal resolution ('daily' or 'weekly').}
 
-\item{smoothed}{Logical indicating whether smoothing should be applied.}
-
-\item{target_lag_lower_tolerance}{Non-negative days before \code{ref_lag} to
-search for genuine target revisions.}
-
-\item{target_lag_upper_tolerance}{Non-negative days after \code{ref_lag} to
-search for genuine target revisions.}
+\item{smoothed}{Logical indicating that supplied values are already smoothed.
+When \code{TRUE}, preprocessing skips its seven-day moving average.}
 
 \item{target_as_of_date}{Optional date limiting target construction to
-reports available on or before that date.}
+reports available on or before that date. When \code{NULL}, the maximum raw
+report date is used.}
 
-\item{revision_start_lag}{Optional lag of the initial report against which
-revision magnitudes are measured. \code{NULL} (default) uses the smallest lag
-with a genuine release in \code{df} (\eqn{l_{min}}), so a stream first reported
-after lag 0 is not compared with the zero that grid completion fills in.}
+\item{revision_start_lag}{Numeric, data frame, or \code{NULL}. A numeric lag
+applies one common initial report to every episode. A lookup data frame
+supplies the initial lag separately by reference date. \code{NULL} (default)
+builds that lookup internally from each episode's first genuine raw report,
+so later-starting episodes are not compared with zeros introduced by grid
+completion.}
 }
 \value{
 A tibble containing the prepared reporting triangle and model
@@ -69,12 +69,27 @@ value column is treated as the column for numerators while the second column is 
 the column for denominators.
 }
 \details{
-The returned data includes a logical \code{genuine_event} column.
-\code{TRUE} identifies every report present in the raw triangle, including an
-unchanged repeated report. Rows created by grid completion or
-carry-forward filling are \code{FALSE}. This metadata is computed before
-missing-update filling so \code{\link[=DelphiRF]{DelphiRF()}} can independently control
-observed-report filtering in training and testing. Counts and fractions
+Lag 7 is always added to \code{lagged_term_list}, because weekly-change
+features are required downstream. Output rows have \code{lag < ref_lag}, and
+raw date and lag columns are normalized to \code{reference_date}, \code{report_date},
+and \code{lag}. Internally the reporting grid keeps lags up to \code{ref_lag + 100}
+days (more if a lag term needs it), which covers every 7-day average and
+lag term of the returned rows. Rows are ordered by \code{reference_date}, then
+\code{report_date}.
+
+The returned data includes a logical \code{genuine_event} column. \code{TRUE}
+identifies raw reports with a usable observed value, including unchanged
+repeated reports. A fraction report is usable only when both its numerator
+and denominator are present. Raw rows with missing required values, rows
+created by grid completion, and carry-forward rows are \code{FALSE}. Episodes
+with no usable raw report are excluded before grid completion. Within each
+retained episode, filling is performed before genuine-only training or
+testing filters are applied, so completed values can contribute to
+seven-day averages and lagged features. For two-column fractions,
+numerator and denominator are filled component-wise: a partial raw report
+is non-genuine, but its observed component can affect later constructed
+features. \code{\link[=DelphiRF]{DelphiRF()}} can independently retain only genuine rows for
+training and testing. Counts and fractions
 supplied as one value column use \code{log(value + 1)}. Fractions supplied as
 numerator and denominator columns use
 \code{log(numerator + 1) - log(denominator + 1)}. For daily data, preprocessing

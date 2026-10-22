@@ -15,6 +15,9 @@ data_filteration(test_lag, data, lag_pad)
 it is applied symmetrically. If a vector of length two is provided, the first element is used
 for left padding and the second for right padding.}
 }
+\value{
+The rows whose reporting lag falls in the padded lag interval.
+}
 \description{
 This function filters the input data based on the specified test lag and lag padding.
 The lag padding can be either a single value (applied symmetrically) or a vector of two values,

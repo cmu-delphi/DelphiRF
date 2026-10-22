@@ -4,14 +4,12 @@
 \alias{weighted_interval_score}
 \title{Weighted interval score for a single observation}
 \usage{
-weighted_interval_score(taus, residuals, point_pred)
+weighted_interval_score(taus, residuals)
 }
 \arguments{
 \item{taus}{Numeric vector of quantile levels.}
 
 \item{residuals}{Numeric vector of (quantile_prediction - actual) values.}
-
-\item{point_pred}{Unused; kept for interface compatibility.}
 }
 \description{
 Inlined from the evalcast package.

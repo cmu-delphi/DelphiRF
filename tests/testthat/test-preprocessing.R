@@ -18,17 +18,6 @@ fake_df <- data.frame(reference_date = c(as.Date("2022-01-03"), as.Date("2022-01
                                      as.Date("2022-01-05")),
                       lag = c(0, 1, 3, 7, 0, 6, 7, 0, 7),
                       Counts_Products_Denom=c(100, 200, 500, 1000, 0, 200, 220, 50, 300))
-test_that("testing rows filling for missing lags", {
-  # Make sure all reference date have enough rows for updates
-  df_new <- fill_rows(fake_df, refd_col, lag_col, min_refd, max_refd, ref_lag)
-  n_refds <- as.numeric(max_refd - min_refd)+1
-
-  expect_equal(nrow(df_new), n_refds*(ref_lag+31))
-  expect_equal(df_new %>% drop_na(), fake_df)
-})
-
-
-
 test_that("fill_missing_updates correctly fills missing values for daily data", {
   df <- data.frame(
     ref_date = as.Date(c("2024-01-01", "2024-01-02", "2024-01-04")),
@@ -57,6 +46,22 @@ test_that("fill_missing_updates correctly processes weekly data", {
 
   expect_true(all(!is.na(filled_df$value_raw)))  # Should be filled correctly
   expect_equal(nrow(filled_df), 2 + 3)  # Two rows expected since it's weekly data
+})
+
+test_that("weekly as-of dates between grid dates do not extend a partial week", {
+  df <- data.frame(
+    ref_date = as.Date(c("2024-01-06", "2024-01-13")),
+    lag = c(0L, 0L),
+    value = c(10, 20)
+  )
+
+  expect_no_error(
+    result <- fill_missing_updates(
+      df, "value", "ref_date", "lag", "weekly",
+      max_report_override = as.Date("2024-01-14")
+    )
+  )
+  expect_equal(max(result$report_date), as.Date("2024-01-13"))
 })
 
 test_that("weekly data are normalized to epiweek-ending Saturdays", {
@@ -127,32 +132,6 @@ test_that("fill_missing_updates correctly handles empty input", {
   expect_equal(nrow(filled_df), 0)  # Output should be empty
 })
 
-test_that("add_shift correctly shifts reference dates", {
-  # Sample data
-  df <- data.frame(
-    ref_date = as.Date(c("2024-01-01", "2024-01-02", "2024-01-03")),
-    value = c(10, 20, 30)
-  )
-
-  # Test with positive shift
-  shifted_df <- add_shift(df, 3, "ref_date")
-  expect_equal(shifted_df$ref_date, as.Date(c("2024-01-04", "2024-01-05", "2024-01-06")))
-
-  # Test with negative shift
-  shifted_df_neg <- add_shift(df, -2, "ref_date")
-  expect_equal(shifted_df_neg$ref_date, as.Date(c("2023-12-30", "2023-12-31", "2024-01-01")))
-
-  # Test with zero shift (should remain unchanged)
-  shifted_df_zero <- add_shift(df, 0, "ref_date")
-  expect_equal(shifted_df_zero$ref_date, df$ref_date)
-
-  # Check if the value column remains unchanged
-  expect_equal(shifted_df$value, df$value)
-  expect_equal(shifted_df_neg$value, df$value)
-  expect_equal(shifted_df_zero$value, df$value)
-})
-
-
 test_that("testing the calculation of week of a month", {
   expect_equal(get_weekofmonth(as.Date("2021-12-31")), 1)
   expect_equal(get_weekofmonth(as.Date("2022-01-01")), 1)
@@ -171,4 +150,52 @@ test_that("testing the calculation of week of a month", {
   expect_equal(get_weekofmonth(as.Date("2022-10-23")), 5)
   expect_equal(get_weekofmonth(as.Date("2022-10-30")), 1)
 
+})
+
+test_that("conflicting releases for one reference and report date are an error", {
+  dup <- data.frame(ref = as.Date("2024-01-01") + c(0, 0, 0, 1),
+                    lag = c(0, 1, 1, 0), value = c(10, 11, 99, 20))
+  expect_error(fill_missing_updates(dup, "value", "ref", "lag"),
+               "1 reference date/report date pair\\(s\\) have more than one value.*reference 2024-01-01 reported 2024-01-02")
+  # An exact repeat of the same release is not a conflict.
+  same <- rbind(dup[c(1, 2, 4), ], dup[2, ])
+  expect_silent(fill_missing_updates(same, "value", "ref", "lag"))
+})
+
+test_that("fill_missing_updates keeps rows up to max_lag unchanged", {
+  set.seed(4)
+  raw <- expand.grid(ref = as.Date("2024-01-01") + 0:59, lag = c(0, 1, 3, 8, 20, 45))
+  raw$value <- round(runif(nrow(raw), 10, 100))
+  full <- fill_missing_updates(raw, "value", "ref", "lag")
+  trimmed <- fill_missing_updates(raw, "value", "ref", "lag", max_lag = 10)
+  expect_equal(max(trimmed$lag), 10)
+  key <- function(df) df[order(df$reference_date, df$report_date), c("reference_date", "report_date", "lag", "value_raw")]
+  expect_equal(key(trimmed), key(full[full$lag <= 10, ]), ignore_attr = TRUE)
+})
+
+test_that("data_preprocessing output is unchanged by trimming the grid at ref_lag + 100", {
+  set.seed(8)
+  # Releases far beyond the target lag, so the trim removes most of the grid.
+  raw <- expand.grid(ref = as.Date("2023-01-01") + 0:299, lag = c(0:12, 30, 150, 260))
+  raw$value <- round(200 + 20 * sin(as.numeric(raw$ref) / 10) - 40 * exp(-raw$lag / 3) +
+                       rnorm(nrow(raw), sd = 2))
+  trimmed <- data_preprocessing(raw, "value", "ref", "lag", 10)
+
+  original_fill <- fill_missing_updates
+  calls <- new.env(parent = emptyenv())
+  local_mocked_bindings(
+    fill_missing_updates = function(..., max_lag = NULL) {
+      calls$max_lag <- max_lag
+      calls$untrimmed_rows <- nrow(original_fill(...))
+      original_fill(...)
+    },
+    .package = "DelphiRF"
+  )
+  untrimmed <- data_preprocessing(raw, "value", "ref", "lag", 10)
+
+  expect_equal(calls$max_lag, 110)
+  expect_identical(as.data.frame(trimmed), as.data.frame(untrimmed))
+  # The trimmed grid is much smaller than the full one.
+  expect_lt(nrow(original_fill(raw, "value", "ref", "lag", max_lag = 110)),
+            calls$untrimmed_rows / 2)
 })

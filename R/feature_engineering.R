@@ -36,8 +36,8 @@ add_dayofweek <- function(df, time_col, suffix, wd = WEEKDAYS_ABBR) {
 #'
 #' @param df Data frame containing the date column.
 #' @param time_col Name of the column containing date values.
-#' @param wm Character vector specifying week labels (e.g., "W1", "W2", "W3", "W4").
-#'           Default is `WEEK_ISSUES`.
+#' @param wm Character vector naming indicator columns. The default creates
+#'   `W1_issue`, `W2_issue`, and `W3_issue`; week 4 is the baseline category.
 #'
 #' @details
 #' - The function first determines the week of the month for each date in `time_col`.
@@ -68,8 +68,13 @@ add_weekofmonth <- function(df, time_col, wm = WEEK_ISSUES) {
 #'
 #' @details
 #' - The function first computes `report_date` as `refd_col + lag_col`.
-#' - It then calculates the **7-day moving average** (`7dav`) for each `report_date`,
-#'   ensuring proper ordering of reference dates.
+#' - It then calculates the trailing **7-day moving average** (`7dav`) over
+#'   reference dates within each `report_date`, ensuring proper ordering of
+#'   reference dates.
+#' - The first six reference dates in each `report_date` group have no
+#'   complete 7-day window, so their `value_7dav` is `NA`. After
+#'   [fill_missing_updates()] these are the first six reference dates of the
+#'   series, at every lag.
 #'
 #' @importFrom dplyr group_by arrange mutate ungroup
 #' @importFrom zoo rollapply
@@ -91,6 +96,25 @@ add_7davs <- function(df, value_col, refd_col, lag_col) {
   return (as.data.frame(df))
 }
 
+# Lag terms are reference-date gaps in days: positive whole numbers, and
+# whole weeks for weekly data, where reference dates are 7 days apart.
+check_lagged_term_list <- function(lagged_term_list, temporal_resol) {
+  if (!temporal_resol %in% c("weekly", "daily")) {
+    stop("Invalid temporal_resol value. Choose 'weekly' or 'daily'.")
+  }
+  if (!is.numeric(lagged_term_list) || !length(lagged_term_list) ||
+      any(!is.finite(lagged_term_list)) || any(lagged_term_list <= 0) ||
+      any(lagged_term_list != round(lagged_term_list))) {
+    stop("lagged_term_list must contain positive whole numbers of days, e.g. c(1, 7) ",
+         "for daily data or c(7, 14) for weekly data.", call. = FALSE)
+  }
+  if (temporal_resol == "weekly" && any(lagged_term_list %% 7 != 0)) {
+    stop("For weekly data, lagged_term_list must be whole weeks in days (multiples of 7, ",
+         "e.g. c(7, 14)); got ", paste(lagged_term_list, collapse = ", "), ".", call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
 #' Add Lagged Terms Based on Temporal Resolution
 #'
 #' This function creates lagged versions of a specified value column based on
@@ -103,18 +127,21 @@ add_7davs <- function(df, value_col, refd_col, lag_col) {
 #' @param lagged_term_list Numeric vector. List of lag values to be applied. Default is `1:7`.
 #' @param temporal_resol Character. Temporal resolution, either `"weekly"` or `"daily"`.
 #'                       Default is `"weekly"`. Determines how lag shifts are applied.
-#' @param start_lag Numeric or `NULL`. The lag of the initial report, \eqn{l_{min}},
-#'   against which revision magnitudes are measured. `NULL` (default) uses the
-#'   smallest lag present in `df`.
+#' @param start_lag Numeric, data frame, or `NULL`. A numeric value applies one
+#'   initial-report lag, \eqn{l_{min}}, to every episode. A data frame supplies
+#'   episode-specific initial lags and must contain the columns named by
+#'   `refd_col` and `lag_col`, with one starting lag per reference date.
+#'   `NULL` (default) uses the smallest lag present in `df`.
 #'
 #' @details
 #' - The revision magnitude for lag `k` is
 #'   `log(value_lagk + 1) - log(value_start_lagk + 1)`, where the start value is
-#'   the value of the same reference date at `start_lag`.
+#'   the value of the source episode at its corresponding `start_lag`.
 #' - If `temporal_resol = "weekly"`, lag values are divided by 7 to match weekly steps.
 #' - If `temporal_resol = "daily"`, lag values are applied directly.
 #' - The function groups data by `report_date`, sorts it by `refd_col`, and applies lags.
-#' - New lagged columns are named as `"lagX"`, where `X` is the lag value.
+#' - For each lag `X`, the function creates `<value_col>_lagX`,
+#'   `<value_col>_start_lagX`, and `log_delta_<value_col>_lagX`.
 #'
 #' @return A modified data frame with additional lagged columns.
 #'
@@ -123,10 +150,7 @@ add_7davs <- function(df, value_col, refd_col, lag_col) {
 #' @export
 add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=1:7, temporal_resol = "weekly",
                              start_lag = NULL) {
-  # Validate temporal resolution
-  if (!temporal_resol %in% c("weekly", "daily")) {
-    stop("Invalid temporal_resol value. Choose 'weekly' or 'daily'.")
-  }
+  check_lagged_term_list(lagged_term_list, temporal_resol)
 
   # Set time step based on resolution
   timestep <- ifelse(temporal_resol == "weekly", 7, 1)
@@ -139,7 +163,7 @@ add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=
     dplyr::mutate(dplyr::across(
       .cols = !!sym(value_col),
       .fns = list(
-        !!!setNames(
+        !!!rlang::set_names(
           lapply(lagged_term_list, function(x) ~ dplyr::lag(., x / timestep)),  # Apply lags, its the lag for timestep
           paste0("lag", lagged_term_list )  # Dynamically name shifted columns
         )
@@ -147,16 +171,32 @@ add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=
     )) %>%
     ungroup()
 
-  min_lag <- if (is.null(start_lag)) min(df[[lag_col]]) else start_lag
+  # ``start_lag`` may be one explicit lag shared by every episode or a
+  # two-column lookup giving each reference date's first raw reporting lag.
+  # The lookup keeps later-starting episodes anchored to their observed initial
+  # report rather than to zeros introduced by grid completion.
+  if (is.data.frame(start_lag)) {
+    start_lookup <- start_lag[, c(refd_col, lag_col), drop = FALSE]
+    start_lookup <- start_lookup[!is.na(start_lookup[[refd_col]]) &
+                                   !is.na(start_lookup[[lag_col]]), , drop = FALSE]
+    start_lookup <- stats::aggregate(start_lookup[[lag_col]],
+                                     by = list(start_lookup[[refd_col]]), FUN = min)
+    names(start_lookup) <- c(refd_col, lag_col)
+    start_df <- merge(df, start_lookup, by = c(refd_col, lag_col))
+    start_df <- start_df[, c(refd_col, value_col), drop = FALSE]
+  } else {
+    min_lag <- if (is.null(start_lag)) min(df[[lag_col]]) else start_lag
+    start_df <- df[df[[lag_col]] == min_lag, c(refd_col, value_col)]
+  }
   for (lag in lagged_term_list) {
     # Select and adjust the previous lagged data
-    start_df_prev <- df[df[[lag_col]] == min_lag, c(refd_col, value_col)]
+    start_df_prev <- start_df
     start_df_prev[[refd_col]] <- start_df_prev[[refd_col]] + lag  # Adjust reference column
     colnames(start_df_prev)[colnames(start_df_prev) == value_col] <- paste0(value_col, "_start_lag", lag)
 
     # Merge back to original dataframe, ensuring distinct rows
     df <- merge(df,
-                start_df_prev[, !(colnames(start_df_prev) %in% c(lag_col))] %>% distinct(.keep_all = TRUE),
+                start_df_prev %>% distinct(.keep_all = TRUE),
                 by=refd_col, all.x=TRUE)
 
     # Compute log difference, ensuring safety in calculations
@@ -167,87 +207,54 @@ add_lagged_terms <- function(df, value_col, refd_col, lag_col, lagged_term_list=
   return (as.data.frame(df))
 }
 
-#' Add target values based on a reference lag
+#' Construct one target record per reference date
 #'
-#' This function adds target values to the dataset by extracting values at a specified
-#' reference lag (`ref_lag`). It merges these target values back into the original dataset.
-#'
-#' @param df Data frame containing the time-series data.
-#' @param value_col Name of the column containing the value to be used as a target.
-#' @param refd_col Name of the reference date column.
-#' @param lag_col Name of the column indicating the lag (difference between reference and issue date).
-#' @param ref_lag The reference lag to determine target values.
-#' @param temporal_resol Character indicating temporal resolution ("daily" or "weekly").
-#'
-#' @details
-#' - The function filters rows where `lag_col == ref_lag` to extract target values.
-#' - Renames extracted value columns (`value_col` and `value_7dav`) as target values.
-#' - Merges the extracted target values back into the original dataset based on `refd_col`.
-#'
-#' @return A modified data frame with additional columns:
-#' - `value_target`: The target value at the specified `ref_lag`.
-#' - `value_target_7dav`: The 7-day moving average of the target value.
-#' - `target_date`: The corresponding issue date for the target.
-#'
-#' @importFrom dplyr rename
-#' @export
-add_targets <- function(df, value_col, refd_col, lag_col, ref_lag, temporal_resol) {
-  available_lags <- sort(unique(df[[lag_col]]))
-  effective_ref_lag <- min(available_lags[available_lags >= ref_lag])
-  if (is.infinite(effective_ref_lag))
-    stop(sprintf("ref_lag %d exceeds all available lags (max %d)", ref_lag, max(available_lags)))
-  if (effective_ref_lag != ref_lag)
-    message(sprintf("ref_lag %d not available; using next lag %d", ref_lag, effective_ref_lag))
-  target_df <- df[df[[lag_col]] == effective_ref_lag, c(refd_col, "report_date", value_col, "value_7dav")]
-  # Rename columns for clarity
-  target_df <- target_df %>%
-    dplyr::rename(
-      value_target = !!sym(value_col),
-      value_target_7dav = value_7dav,
-      target_date = report_date
-    )
-
-  backfill_df <- merge(df, target_df, by=refd_col, all.x=TRUE)
-  return (as.data.frame(backfill_df))
-}
-
-#' Construct one raw-aware target per reference date
-#'
-#' Selects the latest genuine value-changing revision in
-#' `[ref_lag - lower_tolerance, ref_lag + upper_tolerance]`. If none exists,
-#' it falls back to the latest raw value at or before the lower boundary.
-#' The returned table is sparse (one row per reference date) and is intended
-#' to be joined after feature-grid filling.
+#' For a requested target lag `L`, the target matures on
+#' `reference_date + L`. Its value is the latest raw report available at or
+#' before lag `L`; an exact release at lag `L` is not required. The requested
+#' target lag and maturity date are fixed across episodes, while the source
+#' report lag is retained separately for auditing. The returned table is sparse
+#' (one row per reference date) and is intended to be joined after feature-grid
+#' filling.
 #'
 #' @param df Raw reporting-triangle data frame.
-#' @param value_col Name or names of the value columns used to identify
-#'   revisions. A change in any supplied column identifies a revision.
+#' @param value_col Name or names of the raw value columns. These columns are
+#'   retained while constructing the raw report history used for target lookup.
 #' @param refd_col Name of the reference-date column.
 #' @param lag_col Name of the day-based reporting-lag column.
-#' @param ref_lag Central target lag, in days.
-#' @param lower_tolerance Non-negative days before `ref_lag` included in the
-#'   genuine-revision search window.
-#' @param upper_tolerance Non-negative days after `ref_lag` included in the
-#'   genuine-revision search window.
+#' @param ref_lag Requested target lag, in days. One value applies to the whole
+#'   dataset.
 #' @param temporal_resol Either `"daily"` or `"weekly"`.
 #' @param target_as_of_date Optional date limiting target selection to reports
-#'   available on or before that date. The effective upper target-window date
-#'   is the earlier of this date and `reference_date + ref_lag + upper_tolerance`.
-#' @return A compact data frame with at most one target per reference date.
+#'   available on or before that date. Targets whose maturity dates fall after
+#'   this date are unavailable. When `NULL`, the maximum raw report date is
+#'   used.
+#' @return A compact data frame with one target record per reference date,
+#'   including the requested `target_lag` and fixed `target_date`. Before that
+#'   date is available, `target_source_lag` and `target_value_source` are
+#'   missing; afterward they record the observed source lag and either
+#'   `"exact_release"` or `"carried_forward"`. If an episode has no report at
+#'   or before `ref_lag`, its target remains unavailable after maturity.
 #' @export
 create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
-                                 lower_tolerance = 0, upper_tolerance = 0,
                                  temporal_resol = "daily",
                                  target_as_of_date = NULL) {
-  if (lower_tolerance < 0 || upper_tolerance < 0) {
-    stop("Target lag tolerances must be non-negative.")
+  empty_target_lookup <- function() {
+    data.frame(reference_date = as.Date(character()),
+               target_date = as.Date(character()),
+               target_lag = numeric(), target_source_lag = numeric(),
+               target_value_source = character())
   }
   if (nrow(df) == 0) {
-    return(data.frame(reference_date = as.Date(character()),
-                      target_date = as.Date(character()),
-                      target_lag = numeric(), target_type = character()))
+    return(empty_target_lookup())
   }
   raw <- df[, unique(c(refd_col, lag_col, value_col)), drop = FALSE]
+  # A missing value represents no observed update. For a ratio, both the
+  # numerator and denominator are required for the report to be usable.
+  raw <- raw[stats::complete.cases(raw[, value_col, drop = FALSE]), , drop = FALSE]
+  if (nrow(raw) == 0L) {
+    return(empty_target_lookup())
+  }
   raw[[refd_col]] <- as.Date(raw[[refd_col]])
   raw$report_date <- raw[[refd_col]] + raw[[lag_col]]
   if (temporal_resol == "weekly") {
@@ -255,46 +262,52 @@ create_target_lookup <- function(df, value_col, refd_col, lag_col, ref_lag,
   } else if (temporal_resol != "daily") {
     stop("Invalid temporal_resol. Choose either 'daily' or 'weekly'.")
   }
-  raw <- raw[raw[[lag_col]] >= 0, , drop = FALSE]
+  valid <- !is.na(raw[[refd_col]]) & !is.na(raw[[lag_col]]) &
+    is.finite(raw[[lag_col]]) & raw[[lag_col]] >= 0 &
+    !is.na(raw$report_date)
+  raw <- raw[valid, , drop = FALSE]
+  if (nrow(raw) == 0L) {
+    return(empty_target_lookup())
+  }
   raw <- raw[order(raw[[refd_col]], raw[[lag_col]], raw$report_date), , drop = FALSE]
-  lower <- ref_lag - lower_tolerance
-  upper <- ref_lag + upper_tolerance
+  if (is.null(target_as_of_date)) {
+    target_as_of_date <- max(raw$report_date, na.rm = TRUE)
+  }
+  target_as_of_date <- as.Date(target_as_of_date)
 
   chosen <- lapply(split(raw, raw[[refd_col]]), function(g) {
-    if (!is.null(target_as_of_date)) {
-      g <- g[g$report_date <= as.Date(target_as_of_date), , drop = FALSE]
-      if (nrow(g) == 0) return(NULL)
+    maturity_date <- as.Date(g[[refd_col]][1]) + ref_lag
+    candidates <- which(g[[lag_col]] <= ref_lag)
+    # The maturity date is part of the target contract even when it lies after
+    # the archive's as-of date. In that case the target value and its source
+    # audit fields remain unavailable, but consumers can still apply the
+    # authoritative ``target_date <= as_of_date`` rule.
+    if (maturity_date > target_as_of_date || length(candidates) == 0) {
+      return(data.frame(
+        reference_date = as.Date(g[[refd_col]][1]),
+        target_date = maturity_date,
+        target_lag = as.numeric(ref_lag),
+        target_source_lag = NA_real_,
+        target_value_source = NA_character_
+      ))
     }
-    component_changed <- lapply(value_col, function(column) {
-      values <- g[[column]]
-      previous <- values[-length(values)]
-      current <- values[-1]
-      (is.na(current) != is.na(previous)) |
-        (!is.na(current) & !is.na(previous) & current != previous)
-    })
-    changed <- c(TRUE, Reduce(`|`, component_changed))
-    candidates <- which(changed & g[[lag_col]] >= lower & g[[lag_col]] <= upper)
-    if (length(candidates) > 0) {
-      idx <- utils::tail(candidates, 1)
-      type <- "revision"
-    } else {
-      fallback <- which(g[[lag_col]] <= lower)
-      if (length(fallback) == 0) return(NULL)
-      idx <- utils::tail(fallback, 1)
-      type <- "fallback"
-    }
+    idx <- utils::tail(candidates, 1)
+    source_lag <- as.numeric(g[[lag_col]][idx])
     data.frame(
       reference_date = as.Date(g[[refd_col]][idx]),
-      target_date = as.Date(g$report_date[idx]),
-      target_lag = as.numeric(g[[lag_col]][idx]),
-      target_type = type
+      target_date = maturity_date,
+      target_lag = as.numeric(ref_lag),
+      target_source_lag = source_lag,
+      target_value_source = if (source_lag == ref_lag) {
+        "exact_release"
+      } else {
+        "carried_forward"
+      }
     )
   })
   result <- dplyr::bind_rows(chosen)
   if (nrow(result) == 0) {
-    return(data.frame(reference_date = as.Date(character()),
-                      target_date = as.Date(character()),
-                      target_lag = numeric(), target_type = character()))
+    return(empty_target_lookup())
   }
   result
 }
@@ -303,14 +316,18 @@ attach_target_lookup <- function(df, target_lookup) {
   target_values <- df %>%
     select(reference_date, target_date = report_date,
            value_target = value_raw, value_target_7dav = value_7dav)
-  df %>%
+  attached <- df %>%
     left_join(target_lookup, by = "reference_date") %>%
     left_join(target_values, by = c("reference_date", "target_date"))
+  unavailable <- is.na(attached$target_source_lag)
+  attached$value_target[unavailable] <- NA_real_
+  attached$value_target_7dav[unavailable] <- NA_real_
+  attached
 }
 
-# Build a sparse lookup indicating which rows were present in the raw archive
-# rather than introduced by grid completion. Every observed report is retained,
-# including reports whose value is unchanged from the preceding report.
+# Build a sparse lookup of usable observations in the raw archive. A row must
+# contain every value required by the working scale; unchanged usable reports
+# are retained, while raw-but-missing and grid-created rows are not.
 create_genuine_event_lookup <- function(df, value_col, refd_col, lag_col,
                                         temporal_resol = "daily") {
   if (nrow(df) == 0L) {
@@ -321,7 +338,17 @@ create_genuine_event_lookup <- function(df, value_col, refd_col, lag_col,
     ))
   }
 
-  raw <- df[, unique(c(refd_col, lag_col)), drop = FALSE]
+  raw <- df[, unique(c(refd_col, lag_col, value_col)), drop = FALSE]
+  # Raw rows without every value needed for the working scale are missing
+  # updates, not genuine observations. Unchanged non-missing reports remain.
+  raw <- raw[stats::complete.cases(raw[, value_col, drop = FALSE]), , drop = FALSE]
+  if (nrow(raw) == 0L) {
+    return(data.frame(
+      reference_date = as.Date(character()),
+      report_date = as.Date(character()),
+      genuine_event = logical()
+    ))
+  }
   raw[[refd_col]] <- as.Date(raw[[refd_col]])
   raw$report_date <- raw[[refd_col]] + raw[[lag_col]]
   if (temporal_resol == "weekly") {
@@ -420,30 +447,49 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'
 #' @param df Data frame containing the input data.
 #' @param value_col Character vector specifying the column(s) containing values.
-#' @param refd_col Character specifying the reference column for merging operations.
-#' @param lag_col Character specifying the column representing lag information.
-#' @param ref_lag Integer specifying the reference lag value.
-#' @param suffixes Character vector containing suffixes for value columns.
-#' @param lagged_term_list Numeric vector specifying the list of lags to be considered.
+#' @param refd_col Name of the raw reference-date column.
+#' @param lag_col Name of the raw reporting-lag column, measured in days.
+#' @param ref_lag Target lag \eqn{L}, in days. The target of each reference
+#'   date is its latest raw report at or before lag \eqn{L}.
+#' @param suffixes Suffixes used to distinguish numerator and denominator
+#'   feature columns when two value columns are supplied.
+#' @param lagged_term_list Reference-date gaps, in days, for the lagged value
+#'   and revision-magnitude features (see [add_lagged_terms()]). When `NULL`,
+#'   `c(1, 7)` for daily data and `c(7, 14)` for weekly data.
 #' @param value_type Character indicating the type of values ('count' or 'fraction').
 #' @param temporal_resol Character specifying temporal resolution ('daily' or 'weekly').
-#' @param smoothed Logical indicating whether smoothing should be applied.
-#' @param target_lag_lower_tolerance Non-negative days before `ref_lag` to
-#'   search for genuine target revisions.
-#' @param target_lag_upper_tolerance Non-negative days after `ref_lag` to
-#'   search for genuine target revisions.
+#' @param smoothed Logical indicating that supplied values are already smoothed.
+#'   When `TRUE`, preprocessing skips its seven-day moving average.
 #' @param target_as_of_date Optional date limiting target construction to
-#'   reports available on or before that date.
-#' @param revision_start_lag Optional lag of the initial report against which
-#'   revision magnitudes are measured. `NULL` (default) uses the smallest lag
-#'   with a genuine release in `df` (\eqn{l_{min}}), so a stream first reported
-#'   after lag 0 is not compared with the zero that grid completion fills in.
-#' @details The returned data includes a logical `genuine_event` column.
-#'   `TRUE` identifies every report present in the raw triangle, including an
-#'   unchanged repeated report. Rows created by grid completion or
-#'   carry-forward filling are `FALSE`. This metadata is computed before
-#'   missing-update filling so [DelphiRF()] can independently control
-#'   observed-report filtering in training and testing. Counts and fractions
+#'   reports available on or before that date. When `NULL`, the maximum raw
+#'   report date is used.
+#' @param revision_start_lag Numeric, data frame, or `NULL`. A numeric lag
+#'   applies one common initial report to every episode. A lookup data frame
+#'   supplies the initial lag separately by reference date. `NULL` (default)
+#'   builds that lookup internally from each episode's first genuine raw report,
+#'   so later-starting episodes are not compared with zeros introduced by grid
+#'   completion.
+#' @details Lag 7 is always added to `lagged_term_list`, because weekly-change
+#'   features are required downstream. Output rows have `lag < ref_lag`, and
+#'   raw date and lag columns are normalized to `reference_date`, `report_date`,
+#'   and `lag`. Internally the reporting grid keeps lags up to `ref_lag + 100`
+#'   days (more if a lag term needs it), which covers every 7-day average and
+#'   lag term of the returned rows. Rows are ordered by `reference_date`, then
+#'   `report_date`.
+#'
+#'   The returned data includes a logical `genuine_event` column. `TRUE`
+#'   identifies raw reports with a usable observed value, including unchanged
+#'   repeated reports. A fraction report is usable only when both its numerator
+#'   and denominator are present. Raw rows with missing required values, rows
+#'   created by grid completion, and carry-forward rows are `FALSE`. Episodes
+#'   with no usable raw report are excluded before grid completion. Within each
+#'   retained episode, filling is performed before genuine-only training or
+#'   testing filters are applied, so completed values can contribute to
+#'   seven-day averages and lagged features. For two-column fractions,
+#'   numerator and denominator are filled component-wise: a partial raw report
+#'   is non-genuine, but its observed component can affect later constructed
+#'   features. [DelphiRF()] can independently retain only genuine rows for
+#'   training and testing. Counts and fractions
 #'   supplied as one value column use `log(value + 1)`. Fractions supplied as
 #'   numerator and denominator columns use
 #'   `log(numerator + 1) - log(denominator + 1)`. For daily data, preprocessing
@@ -459,8 +505,6 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                suffixes=c(""), lagged_term_list = NULL, value_type="count",
                                temporal_resol="daily", smoothed=FALSE,
-                               target_lag_lower_tolerance = 0,
-                               target_lag_upper_tolerance = 0,
                                target_as_of_date = NULL,
                                revision_start_lag = NULL) {
   if (value_type == "count") {
@@ -473,7 +517,6 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
       warning("More than two value column names provided; only the first two will be used as numerator and denominator.")
       value_col <- value_col[1:2]
     } else if (length(value_col) == 1) {
-      warning("Only one value column provided; it will be treated as a fraction.")
       suffixes <- c("")
     }
     if (length(unique(suffixes)) > length(value_col)) {
@@ -499,26 +542,74 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   if (!7 %in% lagged_term_list) {
     lagged_term_list <- c(lagged_term_list, 7)
   } # Make sure we always have the lagged term from last week
+  check_lagged_term_list(lagged_term_list, temporal_resol)
+  if (temporal_resol == "weekly" && ref_lag %% 7 != 0) {
+    warning(sprintf(paste0(
+      "The target lag of %s days is not a whole number of weeks. Weekly reports ",
+      "fall on 7-day steps, so no report lands exactly at the target lag and every ",
+      "target will be missing; choose a target lag that is a multiple of 7."), ref_lag),
+      call. = FALSE)
+  }
+
+  # Identify reference-date episodes from the raw archive before completing
+  # the reporting grid. An episode with no row containing every required value
+  # is excluded entirely. Missing rows within a usable episode remain in the
+  # input so fill_missing_updates() can carry the preceding value forward.
+  raw_reference_dates <- as.Date(df[[refd_col]])
+  if (temporal_resol == "weekly") {
+    raw_reference_dates <- raw_reference_dates +
+      ((6L - as.POSIXlt(raw_reference_dates)$wday) %% 7L)
+  }
+  usable_rows <- stats::complete.cases(df[, value_col, drop = FALSE])
+  eligible_reference_dates <- unique(raw_reference_dates[
+    usable_rows & !is.na(raw_reference_dates)
+  ])
+  raw_episode_dates <- unique(raw_reference_dates[!is.na(raw_reference_dates)])
+  excluded_reference_dates <- setdiff(raw_episode_dates, eligible_reference_dates)
+  if (!length(eligible_reference_dates)) {
+    return(tibble::tibble())
+  }
+  df <- df[
+    !is.na(raw_reference_dates) & raw_reference_dates %in% eligible_reference_dates,
+    , drop = FALSE
+  ]
 
   genuine_event_lookup <- create_genuine_event_lookup(
     df, value_col, refd_col, lag_col, temporal_resol
   )
-  # Revision magnitudes are measured against the initial report: the smallest
-  # lag at which the data provide a release (l_min), not the lag-0 row that
-  # grid completion adds even when nothing is released on the reference date.
+  # Revision magnitudes are measured against each episode's initial genuine
+  # report. Reporting cadence can change between reference dates, so one
+  # dataset-wide minimum lag would compare later-starting episodes with a zero
+  # introduced by grid completion.
   if (is.null(revision_start_lag) && nrow(genuine_event_lookup) > 0) {
-    revision_start_lag <- min(as.numeric(
-      genuine_event_lookup$report_date - genuine_event_lookup$reference_date))
+    revision_start_lag <- genuine_event_lookup
+    revision_start_lag[[lag_col]] <- as.numeric(
+      revision_start_lag$report_date - revision_start_lag$reference_date)
+    revision_start_lag <- revision_start_lag[, c("reference_date", lag_col), drop = FALSE]
   }
 
+  effective_target_as_of_date <- if (is.null(target_as_of_date)) {
+    max(as.Date(df[[refd_col]]) + df[[lag_col]], na.rm = TRUE)
+  } else {
+    as.Date(target_as_of_date)
+  }
   target_lookup <- create_target_lookup(
-    df, value_col, refd_col, lag_col, ref_lag,
-    target_lag_lower_tolerance, target_lag_upper_tolerance, temporal_resol,
-    target_as_of_date = target_as_of_date
+    df, value_col, refd_col, lag_col, ref_lag, temporal_resol,
+    target_as_of_date = effective_target_as_of_date
   )
 
+  # Only rows with lag < ref_lag are returned, but their 7-day averages and
+  # lag terms read the same report date's earlier reference dates, at lags up
+  # to ref_lag - 1 + max(lagged_term_list) + 6. The grid keeps a generous
+  # ref_lag + 100 days (more if a lag term needs it) and drops larger lags.
+  max_feature_lag <- ref_lag + max(100, max(lagged_term_list) + 6)
+
   dfList <- lapply(value_col, function(value_col) {
-    filled_df <- fill_missing_updates(df, value_col, refd_col, lag_col, temporal_resol)
+    filled_df <- fill_missing_updates(
+      df, value_col, refd_col, lag_col, temporal_resol,
+      max_report_override = effective_target_as_of_date,
+      max_lag = max_feature_lag
+    )
     if (!(smoothed) & (temporal_resol == "daily")){
       filled_df <- add_7davs(filled_df, "value_raw", "reference_date", "lag")
     } else {
@@ -534,7 +625,7 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
     function(x, y) full_join(
       x, y,
       by = c("reference_date", "report_date", "lag", "target_date",
-             "target_lag", "target_type"),
+             "target_lag", "target_source_lag", "target_value_source"),
       suffix = suffixes
     ),
     dfList
@@ -542,6 +633,7 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
 
   if (length(value_col) > 1) {
     cols <- colnames(merged_df)[grepl("value", colnames(merged_df), ignore.case = TRUE)]
+    cols <- setdiff(cols, "target_value_source")
     pattern <- paste0("(", suffixes[1], "|", suffixes[2], ")$")
     clean_cols <- gsub(pattern, "", cols) # remove suffixes
     filtered_cols <- unique(clean_cols[grepl("log", clean_cols)])
@@ -566,50 +658,114 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
     merged_df$genuine_event
 
   merged_df <- merged_df %>%
-    filter(.data$lag < ref_lag)
+    filter(!(.data$reference_date %in% excluded_reference_dates)) %>%
+    filter(.data$lag < ref_lag) %>%
+    dplyr::arrange(.data$reference_date, .data$report_date)
 
   return(tibble::as_tibble(merged_df))
 }
 
 
+#' Build similarity-weight anchors for a forecast origin
+#'
+#' The observation weights of a model fit compare each training row with the
+#' reporting context at the forecast origin. This function records that
+#' context: for every reporting lag it keeps the latest row reported on or
+#' before `forecast_origin`. All rows of `df` are eligible, including rows
+#' carried forward by [fill_missing_updates()] and rows whose target has not
+#' yet matured; only rows reported after the origin, and rows whose
+#' `log_value_7dav` or `log_value_7dav_lag7` is missing, are excluded.
+#'
+#' @param df A data frame from [data_preprocessing()] with `report_date`,
+#'   `lag`, `log_value_7dav` and `log_value_7dav_lag7`. Pass the complete data,
+#'   not only the training rows.
+#' @param forecast_origin Date (or character date) of the forecast origin.
+#' @param by Optional character vector of further columns that identify a
+#'   series, such as `"geo_value"` when `df` holds several locations; one
+#'   anchor is kept per lag within each series.
+#' @return A data frame with one row per lag (and `by` group): the `by`
+#'   columns, `lag`, `ref_7dav_value` (the anchor's `log_value_7dav`) and
+#'   `ref_slope_value` (its `log_value_7dav - log_value_7dav_lag7`).
+#' @importFrom dplyr %>% group_by ungroup slice_max filter across all_of transmute
+#' @export
+create_weight_anchors <- function(df, forecast_origin, by = character()) {
+  required <- c("report_date", "lag", "log_value_7dav", "log_value_7dav_lag7", by)
+  missing_cols <- setdiff(required, colnames(df))
+  if (length(missing_cols)) {
+    stop("Missing column(s) for weight anchors: ", paste(missing_cols, collapse = ", "))
+  }
+  forecast_origin <- as.Date(forecast_origin)
+  if (length(forecast_origin) != 1L || is.na(forecast_origin)) {
+    stop("forecast_origin must be one valid date.")
+  }
+  df %>%
+    as.data.frame() %>%
+    filter(as.Date(.data$report_date) <= forecast_origin,
+           is.finite(.data$log_value_7dav), is.finite(.data$log_value_7dav_lag7)) %>%
+    group_by(across(all_of(c(by, "lag")))) %>%
+    slice_max(.data$report_date, with_ties = FALSE) %>%
+    ungroup() %>%
+    transmute(across(all_of(c(by, "lag"))),
+              ref_7dav_value = .data$log_value_7dav,
+              ref_slope_value = .data$log_value_7dav - .data$log_value_7dav_lag7) %>%
+    as.data.frame()
+}
+
 #' Add Weight-Related Features to a Dataframe
 #'
-#' This function calculates various weight-related features for a given dataframe,
-#' including the difference in days, log slope, and differences in values relative to reference data.
+#' This function compares each row's log seven-day-average level and weekly log
+#' change with the anchor for its reporting lag, as built by
+#' [create_weight_anchors()] at the forecast origin. Apply it to training rows
+#' only; test rows do not receive similarity weights. [get_model()] turns the
+#' two distances into weights `exp(-gamma * level * trend)`, after min-max
+#' normalizing each distance across the training rows of that model fit.
 #'
-#' @param df A dataframe containing the necessary columns for computation.
-#' @return A dataframe with additional computed columns for weight-related metrics.
-#' @importFrom dplyr %>% group_by ungroup select rename slice_max mutate left_join
+#' @param df A data frame containing `log_value_7dav`, `log_value_7dav_lag7`,
+#'   `lag` and any `by` columns used to build `anchors`.
+#' @param anchors A data frame from [create_weight_anchors()]. Every column
+#'   other than `ref_7dav_value` and `ref_slope_value` is a join key, so it
+#'   must hold one anchor per key.
+#' @return A data frame with `log_7dav_slope`, `ref_slope_value`,
+#'   `ref_7dav_value`, `value_slope_diff`, and `value_7dav_diff` added.
+#'   It is an error if a row with complete values has no anchor for its lag.
+#' @importFrom dplyr %>% mutate left_join
 #' @importFrom rlang .data
 #' @export
-add_weights_related <- function(df) {
-  if (!all(c("report_date", "value_7dav",
-             "value_7dav_lag7", "log_value_7dav",
-             "log_value_7dav_lag7", "lag") %in% colnames(df))) {
+add_weights_related <- function(df, anchors) {
+  if (!all(c("log_value_7dav", "log_value_7dav_lag7", "lag") %in% colnames(df))) {
     stop("Missing required columns when adding weighted related features")
   }
+  value_cols <- c("ref_7dav_value", "ref_slope_value")
+  if (!is.data.frame(anchors) || !all(c("lag", value_cols) %in% names(anchors))) {
+    stop("anchors must be a data frame from create_weight_anchors(), with lag, ",
+         "ref_7dav_value and ref_slope_value columns.")
+  }
+  key <- setdiff(names(anchors), value_cols)
+  missing_key <- setdiff(key, colnames(df))
+  if (length(missing_key)) {
+    stop("df lacks the anchor key column(s): ", paste(missing_key, collapse = ", "))
+  }
+  if (anyDuplicated(anchors[key])) {
+    stop("anchors must contain one row per ", paste(key, collapse = " and "), ".")
+  }
 
-  combined_df <- df %>%
+  combined_df <- as.data.frame(df) %>%
+    dplyr::select(-dplyr::any_of(value_cols)) %>%
     mutate(
       log_7dav_slope = .data$log_value_7dav - .data$log_value_7dav_lag7
-    )
-
-  ref_values <- combined_df %>%
-    group_by(.data$lag) %>%
-    slice_max(.data$report_date, with_ties = FALSE) %>%  # Get the row with the max report_date per lag_col
-    ungroup() %>%
-    dplyr::select(dplyr::all_of(c("lag", "log_7dav_slope", "log_value_7dav"))) %>%
-    dplyr::rename(
-      ref_slope_value = log_7dav_slope,
-      ref_7dav_value = log_value_7dav
-    )
-
-  # Join reference values back to combined_df
-  combined_df <- combined_df %>%
-    left_join(ref_values, by = "lag") %>%
+    ) %>%
+    left_join(anchors, by = key) %>%
     mutate(
       value_slope_diff = abs(.data$log_7dav_slope - .data$ref_slope_value),
       value_7dav_diff = abs(.data$log_value_7dav - .data$ref_7dav_value)
     )
-  return(as.data.frame(combined_df))
+
+  unanchored <- is.na(combined_df$ref_7dav_value) &
+    is.finite(combined_df$log_value_7dav) & is.finite(combined_df$log_value_7dav_lag7)
+  if (any(unanchored)) {
+    stop("No weight anchor for lag(s) ",
+         paste(sort(unique(combined_df$lag[unanchored])), collapse = ", "),
+         "; build anchors from the complete data available at the forecast origin.")
+  }
+  combined_df
 }

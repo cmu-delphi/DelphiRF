@@ -9,49 +9,84 @@ get_model(
   train_data,
   covariates,
   response,
-  tau,
-  sqrt_max_raw,
-  kept_bins,
+  taus,
   lambda,
   gamma,
   lp_solver,
   train_models,
   model_backend = c("quantreg", "quantgen"),
-  time_limit = NULL
+  time_limit = NULL,
+  fit_contract = list()
 )
 }
 \arguments{
-\item{model_path}{Path to the cached model file.}
+\item{model_path}{Path to the cached model file, before the contract hash
+is added.}
 
 \item{train_data}{Data frame containing the training data.}
 
-\item{covariates}{Value supplied for \code{covariates}.}
+\item{covariates}{Character vector naming the predictor columns of \code{train_data}.}
 
 \item{response}{Name of the response variable.}
 
-\item{tau}{Quantile to be predicted (between 0 and 1).}
+\item{taus}{Numeric vector of quantile levels between zero and one. Duplicate
+levels are removed while preserving first-occurrence order.}
 
-\item{sqrt_max_raw}{Maximum raw value at square root level.}
+\item{lambda}{Non-negative lasso penalty on the predictor coefficients;
+the intercept is not penalized. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and
+fits one model per value; \code{\link[=DelphiRF]{DelphiRF()}} also accepts a named list with one
+value per test lag group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{kept_bins}{Character vector naming retained square-root scale bins.}
+\item{gamma}{Non-negative decay rate of the observation weights
+\code{exp(-gamma * d)}, where \code{d} is the product of the min-max normalized
+\code{value_7dav_diff} and \code{value_slope_diff} from \code{\link[=add_weights_related]{add_weights_related()}}:
+each training row's level and trend distance from the forecast-origin
+anchor for its lag. \code{0} gives equal weights. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and fits one model per
+value; \code{\link[=DelphiRF]{DelphiRF()}} also accepts a named list with one value per test lag
+group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{lambda}{Value supplied for \code{lambda}.}
+\item{lp_solver}{Linear-programming solver for the optional \code{quantgen}
+backend, \code{"gurobi"} or \code{"glpk"}. Ignored by the default \code{quantreg}
+backend.}
 
-\item{gamma}{Value supplied for \code{gamma}.}
-
-\item{lp_solver}{Value supplied for \code{lp_solver}.}
-
-\item{train_models}{Value supplied for \code{train_models}.}
+\item{train_models}{Logical; when \code{TRUE}, fit new models and overwrite
+the cache. When \code{FALSE}, load cached models; a missing model is fitted
+with a warning, and a cached model fitted under a different contract
+(response, predictors, \code{taus}, hyperparameters, training cutoff and
+window, target lag, or training data; see \code{\link[=get_model]{get_model()}}) is an error.}
 
 \item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
 default; \code{"quantgen"} preserves the previous implementation.}
 
 \item{time_limit}{Optional solver time limit for the \code{quantgen} backend.}
+
+\item{fit_contract}{Named list of further settings the model depends on,
+added to the contract described above.}
 }
 \value{
-The trained or loaded model object.
+The trained or loaded model object, with its file in the
+\code{model_path} attribute.
 }
 \description{
 This function retrieves a cached model if available or trains a new quantile regression model if necessary.
-The trained model is saved with additional metadata attributes.
+The trained model is saved with its \code{gamma}, \code{lambda}, \code{lp_solver},
+\code{model_backend} and \code{fit_contract} as attributes.
+}
+\details{
+Observation weights are \code{exp(-gamma * d)}, where \code{d} is the min-max
+normalized \code{value_7dav_diff} multiplied by the normalized
+\code{value_slope_diff} (see \code{\link[=add_weights_related]{add_weights_related()}}); a column that is absent is
+left out of the product.
+
+The fitting contract records everything the fitted coefficients depend on:
+the response, the ordered predictors, \code{taus}, \code{lambda}, \code{gamma}, the
+backend (and LP solver for \code{quantgen}), the feature-schema version, a
+fingerprint of the training predictors, response and weights, and the
+caller's \code{fit_contract} entries (such as the training cutoff and target
+lag). The first eight characters of the contract's hash are added to the
+file name (\code{..._c3f9a2b1.rds}), so every distinct fit has its own file and
+a load finds exactly the matching one. The stored contract is checked again
+on loading, and loading stops with the differing fields if it does not
+match. Models are written atomically: to a temporary file in the same
+folder, then renamed.
 }

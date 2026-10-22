@@ -4,30 +4,29 @@
 \alias{exponentiate_preds}
 \title{Un-log predicted values}
 \usage{
-exponentiate_preds(
-  test_data,
-  taus,
-  value_type = c("count", "fraction"),
-  fraction_input = c("value", "numerator_denominator")
-)
+exponentiate_preds(test_data, taus, working_scale)
 }
 \arguments{
 \item{test_data}{dataframe with a column containing the prediction results of
 each requested quantile. Each row represents an update with certain
 (reference_date, report_date, location) combination.}
 
-\item{taus}{Value supplied for \code{taus}.}
+\item{taus}{Numeric vector of quantile levels, each strictly between 0 and 1.
+Duplicate levels are removed while preserving first-occurrence order.}
 
-\item{value_type}{Either \code{"count"} or \code{"fraction"}.}
-
-\item{fraction_input}{For fraction data, either \code{"value"} when preprocessing
-received one fraction column or \code{"numerator_denominator"} when it received
-separate numerator and denominator columns. Ignored for counts.}
+\item{working_scale}{Required; there is no default. The scale the model
+is fitted on, which sets how predictions are returned to the reporting
+scale: \code{"log_value"} when preprocessing received one value column (a count
+or a directly supplied rate), modelled as \code{log(value + 1)}; \code{"log_ratio"}
+when it received numerator and denominator columns, modelled as
+\code{log(numerator + 1) - log(denominator + 1)}.}
+}
+\value{
+\code{test_data} with \verb{predicted_tau*} on the reporting scale and the
+model-scale values in \verb{predicted_tau*_working}.
 }
 \description{
-Inverts the response transformation used during preprocessing. Counts and
-fractions supplied as one value column use \code{log(value + 1)} and therefore
-require \code{exp(prediction) - 1}. Fractions supplied as numerator and
-denominator columns use \code{log(numerator + 1) - log(denominator + 1)} and
-therefore require \code{exp(prediction)}.
+Inverts the response transformation used during preprocessing. Unsuffixed
+\verb{predicted_tau*} columns are returned on the reporting scale, while exact
+model-scale values are retained in paired \verb{predicted_tau*_working} columns.
 }

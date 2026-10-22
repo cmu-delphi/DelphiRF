@@ -1,2 +1,1 @@
-#' @param indicator Value supplied for `indicator`.
-
+#' @param indicator Indicator label. Used only in the model cache folder name.

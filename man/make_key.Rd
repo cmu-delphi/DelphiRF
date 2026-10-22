@@ -7,9 +7,12 @@
 make_key(value_type, signal_suffix)
 }
 \arguments{
-\item{value_type}{Value supplied for \code{value_type}.}
+\item{value_type}{\code{"count"} or \code{"fraction"}. In the forecasting
+functions it is used only in the model cache folder name; \code{working_scale}
+sets how predictions are transformed back.}
 
-\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
+\item{signal_suffix}{Optional extra label. Used only in the model cache
+folder name.}
 }
 \description{
 If \code{signal_suffix} is not an empty string, concatenate the two arguments.
