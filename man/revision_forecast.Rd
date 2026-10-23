@@ -145,6 +145,9 @@ is available, evaluation scores: \code{wis_working}, the WIS on the model's
 working (log) scale, and \code{wis_reporting}, the WIS of the reporting-scale
 predictions against the target on the reporting scale. It is empty when
 \code{make_predictions} is \code{FALSE} or no test row has all its predictors.
+Test rows left out because a predictor is missing are listed, with the
+reason, in the \code{"dropped_test_rows"} attribute (see
+\code{\link[=incomplete_test_rows]{incomplete_test_rows()}}), and their count is reported with \code{message()}.
 }
 \description{
 This function trains a forecast model for a given geographical location

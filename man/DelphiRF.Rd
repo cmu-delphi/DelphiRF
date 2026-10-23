@@ -153,7 +153,9 @@ backend.}
 }
 \value{
 A tibble containing the available forecasts across requested lag
-groups.
+groups. Its \code{"dropped_test_rows"} attribute lists the test rows left out
+because a predictor is missing (see \code{\link[=incomplete_test_rows]{incomplete_test_rows()}}), with a
+\code{test_lag_group} column.
 }
 \description{
 This function performs a forecasting operation using historical data, applying

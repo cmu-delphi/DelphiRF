@@ -59,6 +59,9 @@
 #'   working (log) scale, and `wis_reporting`, the WIS of the reporting-scale
 #'   predictions against the target on the reporting scale. It is empty when
 #'   `make_predictions` is `FALSE` or no test row has all its predictors.
+#'   Test rows left out because a predictor is missing are listed, with the
+#'   reason, in the `"dropped_test_rows"` attribute (see
+#'   [incomplete_test_rows()]), and their count is reported with `message()`.
 #'
 #' @importFrom dplyr %>% select bind_rows
 #' @importFrom tidyr drop_na
@@ -158,7 +161,14 @@ revision_forecast <- function(train_data, test_data, taus,
     return(tibble::tibble())
   }
 
+  dropped_test_rows <- incomplete_test_rows(test_data[0, , drop = FALSE], params_list)
   if (make_predictions) {
+    dropped_test_rows <- incomplete_test_rows(test_data, params_list)
+    if (nrow(dropped_test_rows)) {
+      message(sprintf(
+        "%d test row(s) not forecast: missing predictor values [geo=%s lag_group=%s]",
+        nrow(dropped_test_rows), geo, test_lag_group))
+    }
     test_data <- test_data %>%
       drop_na(!!!syms(c(params_list, basic_cols))) %>%
       select(dplyr::all_of(c(basic_cols, params_list, response)))
@@ -201,7 +211,44 @@ revision_forecast <- function(train_data, test_data, taus,
     result <- exponentiate_preds(result, taus, working_scale = working_scale)
     result <- add_reporting_wis(result, taus, response, working_scale)
   }
-  return(tibble::as_tibble(result))
+  result <- tibble::as_tibble(result)
+  attr(result, "dropped_test_rows") <- dropped_test_rows
+  return(result)
+}
+
+#' Test rows that cannot be forecast because a predictor is missing
+#'
+#' [revision_forecast()] forecasts only test rows with every predictor and key
+#' column present. This function lists the rows it leaves out, so a caller can
+#' report them instead of losing them silently. A lagged feature is missing,
+#' for example, when the reference date `k` days earlier has no report.
+#'
+#' @param test_data Test data frame, as passed to [revision_forecast()].
+#' @param params_list Character vector of predictor columns.
+#' @return A data frame with one row per left-out test row: the identifying
+#'   columns present in `test_data` (`geo_value`, `reference_date`,
+#'   `report_date`, `lag`), `missing_features` (the missing columns, separated
+#'   by `;`), and `reason` (`"missing lagged feature"` when every missing
+#'   column is a lag-derived feature, otherwise `"missing predictor"`).
+#' @export
+incomplete_test_rows <- function(test_data, params_list) {
+  key_cols <- intersect(c("geo_value", "reference_date", "report_date", "lag"),
+                        names(test_data))
+  checked <- intersect(unique(c(params_list, "reference_date", "lag", "report_date")),
+                       names(test_data))
+  test_data <- as.data.frame(test_data)
+  missing <- is.na(test_data[, checked, drop = FALSE])
+  dropped <- which(rowSums(missing) > 0)
+  out <- test_data[dropped, key_cols, drop = FALSE]
+  missing_features <- vapply(dropped, function(i) paste(checked[missing[i, ]], collapse = ";"),
+                             character(1))
+  lagged <- vapply(strsplit(missing_features, ";", fixed = TRUE),
+                   function(cols) length(cols) > 0 && all(grepl("_lag[0-9]+$", cols)),
+                   logical(1))
+  out$missing_features <- missing_features
+  out$reason <- ifelse(lagged, "missing lagged feature", "missing predictor")
+  rownames(out) <- NULL
+  out
 }
 
 validate_genuine_event_options <- function(df, genuine_training,
@@ -595,7 +642,9 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #'   test rows, are skipped rather than stopping forecasts for the remaining
 #'   groups.
 #' @return A tibble containing the available forecasts across requested lag
-#'   groups.
+#'   groups. Its `"dropped_test_rows"` attribute lists the test rows left out
+#'   because a predictor is missing (see [incomplete_test_rows()]), with a
+#'   `test_lag_group` column.
 #'
 #' @importFrom dplyr %>% filter bind_rows
 #' @export
@@ -680,6 +729,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
   }
 
   test_data_list <- list()
+  dropped_list <- list()
 
   # Split the test lag group if it's a range (e.g., "15-21")
   for (test_lag_group in test_lag_groups) {
@@ -721,7 +771,20 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     )
 
     test_data_list <- append(test_data_list, list(results))
+    group_dropped <- attr(results, "dropped_test_rows")
+    if (!is.null(group_dropped) && nrow(group_dropped)) {
+      group_dropped$test_lag_group <- as.character(test_lag_group)
+      dropped_list <- append(dropped_list, list(group_dropped))
+    }
   }
-  return(tibble::as_tibble(bind_rows(test_data_list)))
+  result <- tibble::as_tibble(bind_rows(test_data_list))
+  attr(result, "dropped_test_rows") <- if (length(dropped_list)) {
+    as.data.frame(bind_rows(dropped_list))
+  } else {
+    data.frame(reference_date = as.Date(character()), report_date = as.Date(character()),
+               lag = numeric(), missing_features = character(), reason = character(),
+               test_lag_group = character())
+  }
+  return(result)
 
 }
