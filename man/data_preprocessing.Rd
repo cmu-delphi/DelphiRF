@@ -88,7 +88,8 @@ testing filters are applied, so completed values can contribute to
 seven-day averages and lagged features. For two-column fractions,
 numerator and denominator are filled component-wise: a partial raw report
 is non-genuine, but its observed component can affect later constructed
-features. \code{\link[=DelphiRF]{DelphiRF()}} can independently retain only genuine rows for
+features. \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} can independently retain only
+genuine rows for
 training and testing. Counts and fractions
 supplied as one value column use \code{log(value + 1)}. Fractions supplied as
 numerator and denominator columns use

@@ -38,7 +38,7 @@ prepare <- function(archive, ref_lag, weekly = FALSE) {
 }
 
 run_delphirf <- function(df, origin, cache, weekly = FALSE) {
-  result <- suppressMessages(DelphiRF(
+  result <- suppressMessages(delphirf_nowcast_preprocessed(
     df, testing_start_date = origin, working_scale = "log_value",
     temporal_resol = if (weekly) "weekly" else "daily",
     training_days = if (weekly) 364 else 60, taus = c(0.1, 0.5, 0.9),
@@ -88,7 +88,7 @@ test_that("targets mature only through releases at or before the target lag", {
   expect_identical(known_targets(prepare(altered, 10)), known_targets(prepare(archive, 10)))
 })
 
-test_that("DelphiRF fits and forecasts at a daily origin use only data known then", {
+test_that("preprocessed daily nowcasts use only data known at their origin", {
   archive <- make_archive()
   origin <- as.Date("2023-03-28")
   cache_a <- tempfile("leak-a-"); cache_b <- tempfile("leak-b-"); cache_c <- tempfile("leak-c-")
@@ -109,7 +109,7 @@ test_that("DelphiRF fits and forecasts at a daily origin use only data known the
   expect_false(identical(control$models, original$models))
 })
 
-test_that("DelphiRF fits and forecasts at a weekly origin use only data known then", {
+test_that("preprocessed weekly nowcasts use only data known at their origin", {
   archive <- make_archive(weekly = TRUE, n_reference = 90, max_lag = 12)
   origin <- as.Date("2023-01-07") + 7 * 70
   cache_a <- tempfile("leak-wa-"); cache_b <- tempfile("leak-wb-")

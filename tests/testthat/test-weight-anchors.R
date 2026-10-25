@@ -118,7 +118,7 @@ test_that("weights multiply the min-max normalized level and trend distances", {
   expect_equal(observation_weights(train, gamma = 2), exp(-2 * level * trend))
 })
 
-test_that("DelphiRF anchors weights at its own origin and leaves test rows unweighted", {
+test_that("preprocessed nowcasting anchors weights at its own origin", {
   df <- anchor_frame()
   seen <- new.env(parent = emptyenv())
   local_mocked_bindings(
@@ -130,7 +130,7 @@ test_that("DelphiRF anchors weights at its own origin and leaves test rows unwei
     .package = "DelphiRF"
   )
   run <- function(origin) {
-    DelphiRF(df, testing_start_date = origin, working_scale = "log_value",
+    delphirf_nowcast_preprocessed(df, testing_start_date = origin, working_scale = "log_value",
              test_lag_groups = "0", lag_pad = 0, training_days = 60)
     seen$train
   }

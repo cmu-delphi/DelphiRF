@@ -12,6 +12,45 @@ The preprocessing and forecasting functions return tibbles. They remain
 compatible with data-frame operations and print a compact preview for
 large results.
 
+## Quick start
+
+Most users should begin with one of two high-level functions:
+
+- `delphirf_nowcast()` produces an operational nowcast at one forecast origin.
+- `delphirf_backtest()` preprocesses a complete retrospective archive once and
+  produces pseudoprospective nowcasts at several historical origins. Each fit
+  still uses only information available by its origin.
+
+Both functions accept a raw revision archive. By default they expect
+`reference_date`, `lag`, `value`, and optionally `geo_value`. Column names can
+be changed explicitly.
+
+``` r
+nowcast <- delphirf_nowcast(
+  ma_dph,
+  as_of = as.Date("2022-06-15"),
+  value_col = "confirmed_case_7d_avg",
+  refd_col = "test_date",
+  lag_col = "lag",
+  ref_lag = 14,
+  smoothed = TRUE
+)
+
+backtest <- delphirf_backtest(
+  ma_dph,
+  test_dates = as.Date(c("2022-06-15", "2022-06-22", "2022-06-29")),
+  value_col = "confirmed_case_7d_avg",
+  refd_col = "test_date",
+  lag_col = "lag",
+  ref_lag = 14,
+  smoothed = TRUE
+)
+```
+
+For workflows that already call `data_preprocessing()`, use
+`delphirf_nowcast_preprocessed()`. It is the lower-level modeling engine and
+expects the prepared reporting triangle rather than a raw archive.
+
 ## \## Installation
 
 You can install the package directly from GitHub using:
@@ -178,9 +217,10 @@ The data is preprocessed using the following steps:
 
 ## Model Training and Forecast Generation
 
-### Running DelphiRF
+### Running the preprocessed-data engine
 
-To perform forecasting using `DelphiRF`, you need to specify:
+To forecast an already prepared reporting triangle using
+`delphirf_nowcast_preprocessed()`, specify:
 
 -   `df`: A **data frame** containing the input data.
 -   `testing_start_date`: A **Date** object giving the forecast origin
@@ -207,8 +247,8 @@ as needed using fixed hyperparameters. By default, training and
 prediction use only rows marked as usable raw observations by
 `data_preprocessing`.
 
-    # Run DelphiRF for forecasting
-    results <- DelphiRF(
+    # Forecast from the prepared reporting triangle
+    results <- delphirf_nowcast_preprocessed(
       df, as.Date("2021-12-06"),
       working_scale = "log_value",
       model_save_dir = file.path(tempdir(), "DelphiRF-readme-models")
@@ -327,7 +367,7 @@ indicator (default: `""`).
 - `signal_suffix`: A **string** to be appended to the signal name
 (default: `""`).
 - `training_end_date`: An **optional date** specifying the end of the
-training period. When omitted, `DelphiRF()` uses `testing_start_date`;
+training period. When omitted, `delphirf_nowcast_preprocessed()` uses `testing_start_date`;
 it cannot be later than the test origin.
 
 Forecast results retain both scales. `predicted_tau*` columns are on the
@@ -345,7 +385,7 @@ needed for a single `test_lag_group`. The caller supplies
 already-filtered training and test data; the training data must include
 the features added by `add_weights_related()`, using anchors built by
 `create_weight_anchors()` at the forecast origin. It is utilized within
-the `DelphiRF` function.
+`delphirf_nowcast_preprocessed()`.
 
 Users can directly call the `revision_forecast` function if they assume
 a consistent revision pattern in the given data. To use this function,

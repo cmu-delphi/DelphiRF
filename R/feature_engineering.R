@@ -495,7 +495,8 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'   seven-day averages and lagged features. For two-column fractions,
 #'   numerator and denominator are filled component-wise: a partial raw report
 #'   is non-genuine, but its observed component can affect later constructed
-#'   features. [DelphiRF()] can independently retain only genuine rows for
+#'   features. [delphirf_nowcast_preprocessed()] can independently retain only
+#'   genuine rows for
 #'   training and testing. Counts and fractions
 #'   supplied as one value column use `log(value + 1)`. Fractions supplied as
 #'   numerator and denominator columns use

@@ -1,7 +1,7 @@
 library(testthat)
 
 test_that("genuine-event filtering defaults are explicit", {
-  defaults <- formals(DelphiRF)
+  defaults <- formals(delphirf_nowcast_preprocessed)
   expect_identical(defaults$genuine_training, TRUE)
   expect_identical(defaults$genuine_testing, TRUE)
 
@@ -13,20 +13,20 @@ test_that("genuine-event filtering defaults are explicit", {
   expect_identical(defaults$model_backend, quote(c("quantreg", "quantgen")))
 })
 
-test_that("DelphiRF requires genuine-event metadata by default", {
+test_that("delphirf_nowcast_preprocessed requires genuine-event metadata by default", {
   df <- data.frame(
     report_date = as.Date("2024-01-01"),
     target_date = as.Date("2024-01-02"),
     lag = 1L
   )
   expect_error(
-    DelphiRF(df, testing_start_date = as.Date("2024-01-02"),
+    delphirf_nowcast_preprocessed(df, testing_start_date = as.Date("2024-01-02"),
              working_scale = "log_value"),
     "genuine_event column is required"
   )
 })
 
-test_that("DelphiRF validates genuine-event metadata", {
+test_that("delphirf_nowcast_preprocessed validates genuine-event metadata", {
   df <- data.frame(
     report_date = as.Date("2024-01-01"),
     target_date = as.Date("2024-01-02"),
@@ -34,13 +34,13 @@ test_that("DelphiRF validates genuine-event metadata", {
     genuine_event = 1L
   )
   expect_error(
-    DelphiRF(df, testing_start_date = as.Date("2024-01-02"),
+    delphirf_nowcast_preprocessed(df, testing_start_date = as.Date("2024-01-02"),
              working_scale = "log_value"),
     "genuine_event must be a logical column"
   )
 })
 
-test_that("DelphiRF genuine-event switches independently filter training and testing", {
+test_that("preprocessed nowcasting independently filters training and testing", {
   cutoff <- as.Date("2024-02-01")
   n_train <- 20L
   n_test <- 4L
@@ -66,7 +66,7 @@ test_that("DelphiRF genuine-event switches independently filter training and tes
     .package = "DelphiRF"
   )
 
-  genuine <- DelphiRF(
+  genuine <- delphirf_nowcast_preprocessed(
     df, testing_start_date = cutoff, working_scale = "log_value",
     test_lag_groups = 8,
     lag_pad = 0, training_days = 30
@@ -76,7 +76,7 @@ test_that("DelphiRF genuine-event switches independently filter training and tes
   expect_equal(unique(genuine$n_training_rows), 11L)
   expect_true(all(genuine$all_training_rows_genuine))
 
-  all_training <- DelphiRF(
+  all_training <- delphirf_nowcast_preprocessed(
     df, testing_start_date = cutoff, working_scale = "log_value",
     test_lag_groups = 8,
     lag_pad = 0, training_days = 30,
@@ -85,7 +85,7 @@ test_that("DelphiRF genuine-event switches independently filter training and tes
   expect_equal(nrow(all_training), 2L)
   expect_equal(unique(all_training$n_training_rows), 21L)
 
-  all_testing <- DelphiRF(
+  all_testing <- delphirf_nowcast_preprocessed(
     df, testing_start_date = cutoff, working_scale = "log_value",
     test_lag_groups = 8,
     lag_pad = 0, training_days = 30,
@@ -94,7 +94,7 @@ test_that("DelphiRF genuine-event switches independently filter training and tes
   expect_equal(nrow(all_testing), 4L)
   expect_equal(unique(all_testing$n_training_rows), 11L)
 
-  all_rows <- DelphiRF(
+  all_rows <- delphirf_nowcast_preprocessed(
     df, testing_start_date = cutoff, working_scale = "log_value",
     test_lag_groups = 8,
     lag_pad = 0, training_days = 30,
@@ -132,12 +132,12 @@ test_that("preprocessing metadata controls high-level training and testing", {
     .package = "DelphiRF"
   )
 
-  genuine <- DelphiRF(
+  genuine <- delphirf_nowcast_preprocessed(
     processed, testing_start_date = cutoff, working_scale = "log_value",
     test_lag_groups = "0-2",
     lag_pad = 0, training_days = 30
   )
-  unfiltered <- DelphiRF(
+  unfiltered <- delphirf_nowcast_preprocessed(
     processed, testing_start_date = cutoff, working_scale = "log_value",
     test_lag_groups = "0-2",
     lag_pad = 0, training_days = 30,

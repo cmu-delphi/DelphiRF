@@ -71,7 +71,7 @@ test_that("model APIs default to the persistent user cache, except cross-validat
   expect_identical(formals(revision_forecast)$model_save_dir, expected_default)
   # Fold models are tuning by-products and go to a temporary directory.
   expect_null(formals(cv_revision_forecast)$model_save_dir)
-  expect_identical(formals(DelphiRF)$model_save_dir, expected_default)
+  expect_identical(formals(delphirf_nowcast_preprocessed)$model_save_dir, expected_default)
   expect_identical(default_model_save_dir(), expected_dir)
 })
 
@@ -555,7 +555,7 @@ test_that("revision_forecast without predictions still fits every lambda-gamma m
   }
 })
 
-test_that("DelphiRF trains on releases reported up to and including the cutoff", {
+test_that("preprocessed nowcasting trains through the cutoff", {
   cutoff <- as.Date("2024-01-10")
   n_train <- 12L
   n_test <- 2L
@@ -581,7 +581,7 @@ test_that("DelphiRF trains on releases reported up to and including the cutoff",
     .package = "DelphiRF"
   )
 
-  result <- DelphiRF(
+  result <- delphirf_nowcast_preprocessed(
     df,
     testing_start_date = cutoff,
     working_scale = "log_value",
@@ -595,7 +595,7 @@ test_that("DelphiRF trains on releases reported up to and including the cutoff",
   expect_equal(unique(result$latest_training_report_date), cutoff)
 })
 
-test_that("DelphiRF honors an explicit training end date", {
+test_that("preprocessed nowcasting honors an explicit training end date", {
   cutoff <- as.Date("2024-01-10")
   training_end <- cutoff - 3L
   dates <- seq(cutoff - 12L, cutoff + 1L, by = "day")
@@ -621,7 +621,7 @@ test_that("DelphiRF honors an explicit training end date", {
     .package = "DelphiRF"
   )
 
-  result <- DelphiRF(
+  result <- delphirf_nowcast_preprocessed(
     df,
     testing_start_date = cutoff,
     working_scale = "log_value",
@@ -636,7 +636,7 @@ test_that("DelphiRF honors an explicit training end date", {
   expect_true(all(result$latest_training_report_date <= training_end))
   expect_equal(unique(result$received_training_end_date), training_end)
   expect_error(
-    DelphiRF(df, testing_start_date = cutoff,
+    delphirf_nowcast_preprocessed(df, testing_start_date = cutoff,
     working_scale = "log_value",
              training_end_date = cutoff + 1L),
     "cannot be after the forecast origin"

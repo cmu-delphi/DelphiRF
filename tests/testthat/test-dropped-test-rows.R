@@ -47,12 +47,12 @@ test_that("revision_forecast reports the test rows it cannot forecast", {
   expect_equal(nrow(result) + nrow(dropped), nrow(test))
 })
 
-test_that("DelphiRF gathers dropped test rows across lag groups", {
+test_that("preprocessed nowcasting gathers dropped rows across lag groups", {
   df <- make_prepared()
   origin <- as.Date("2023-03-28")
   df$log_value_7dav_lag7[df$report_date == origin & df$lag %in% c(1, 5)] <- NA
   cache <- tempfile("dropped-d-"); on.exit(unlink(cache, recursive = TRUE))
-  result <- suppressMessages(DelphiRF(
+  result <- suppressMessages(delphirf_nowcast_preprocessed(
     df, testing_start_date = origin, working_scale = "log_value", temporal_resol = "daily",
     test_lag_groups = c("1", "5"), training_days = 60, taus = c(0.1, 0.5, 0.9),
     params_list = c("log_value_7dav", "log_value_7dav_lag7"), model_save_dir = cache))

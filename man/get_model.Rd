@@ -34,7 +34,7 @@ levels are removed while preserving first-occurrence order.}
 
 \item{lambda}{Non-negative lasso penalty on the predictor coefficients;
 the intercept is not penalized. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and
-fits one model per value; \code{\link[=DelphiRF]{DelphiRF()}} also accepts a named list with one
+fits one model per value; \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} also accepts a named list with one
 value per test lag group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
 \item{gamma}{Non-negative decay rate of the observation weights
@@ -42,7 +42,7 @@ value per test lag group and an \code{others} entry (see \code{\link[=handle_hyp
 \code{value_7dav_diff} and \code{value_slope_diff} from \code{\link[=add_weights_related]{add_weights_related()}}:
 each training row's level and trend distance from the forecast-origin
 anchor for its lag. \code{0} gives equal weights. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and fits one model per
-value; \code{\link[=DelphiRF]{DelphiRF()}} also accepts a named list with one value per test lag
+value; \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} also accepts a named list with one value per test lag
 group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
 \item{lp_solver}{Linear-programming solver for the optional \code{quantgen}

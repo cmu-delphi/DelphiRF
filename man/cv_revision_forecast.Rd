@@ -95,9 +95,9 @@ in the model cache folder name.}
 folder name.}
 
 \item{training_end_date}{A single valid date used as the training cutoff.
-When empty, \code{DelphiRF()} uses \code{testing_start_date}, while
+When empty, \code{delphirf_nowcast_preprocessed()} uses \code{testing_start_date}, while
 \code{\link[=revision_forecast]{revision_forecast()}} and \code{\link[=cv_revision_forecast]{cv_revision_forecast()}} use the latest input
-report date. \code{DelphiRF()} requires the cutoff not to be later than its
+report date. \code{delphirf_nowcast_preprocessed()} requires the cutoff not to be later than its
 forecast origin. Lower-level functions have no forecast-origin argument
 and therefore validate the date but cannot apply that ordering check.}
 

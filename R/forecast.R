@@ -276,7 +276,8 @@ validate_genuine_event_options <- function(df, genuine_training,
 }
 
 # Resolve and validate the training cutoff shared by the forecasting entry
-# points. Only DelphiRF() has an explicit forecast origin, so only that caller
+# points. Only delphirf_nowcast_preprocessed() has an explicit forecast origin,
+# so only that caller
 # can enforce that the cutoff is not later than the origin.
 validate_training_end_date <- function(training_end_date, default,
                                        forecast_origin = NULL) {
@@ -561,10 +562,13 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
               scores = do.call(rbind, candidate_scores)))
 }
 
-#' Revision Forecast for a Specific Location
+#' Produce DelphiRF nowcasts from preprocessed data
 #'
-#' This function performs a forecasting operation using historical data, applying
-#' hyper-parameters and lag-based adjustments for different test lag groups.
+#' This lower-level entry point fits and applies DelphiRF models to the reporting
+#' triangle returned by [data_preprocessing()]. Most users should call
+#' [delphirf_nowcast()] for one operational origin or [delphirf_backtest()] for
+#' multiple historical origins; those functions accept a raw revision archive
+#' and perform preprocessing automatically.
 #'
 #' With origin `c = testing_start_date` and training end date `e` (equal to
 #' `c` unless `training_end_date` is given):
@@ -648,7 +652,7 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #'
 #' @importFrom dplyr %>% filter bind_rows
 #' @export
-DelphiRF <- function(df, testing_start_date, taus=TAUS,
+delphirf_nowcast_preprocessed <- function(df, testing_start_date, taus=TAUS,
                      test_lag_groups=NULL,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
