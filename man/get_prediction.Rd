@@ -17,7 +17,8 @@ get_prediction(
 \item{test_data}{Data frame containing model predictors and, when evaluated,
 the response column.}
 
-\item{taus}{Numeric vector of quantile levels.}
+\item{taus}{Numeric vector of quantile levels. Duplicate levels are removed
+while preserving first-occurrence order.}
 
 \item{covariates}{Character vector naming predictor columns.}
 
@@ -25,11 +26,12 @@ the response column.}
 
 \item{obj}{A fitted model object supporting \code{\link[stats:predict]{stats::predict()}}.}
 
-\item{make_evaluation}{Logical; calculate WIS when \code{TRUE}.}
+\item{make_evaluation}{Logical; when \code{TRUE}, add \code{wis_working}, the WIS on
+the model's working (log) scale.}
 }
 \value{
 A tibble containing the input prediction rows, fitted quantiles,
-model metadata, and optionally WIS.
+model metadata, and optionally \code{wis_working}.
 }
 \description{
 Generate and optionally evaluate predictions from a fitted model

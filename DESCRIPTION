@@ -1,31 +1,32 @@
 Package: DelphiRF
 Title: Delphi - Revision Forecast
-Version: 0.0.0.9000
+Version: 0.0.0.9001
 Authors@R: 
     c(person("Jingjing", "Tang", email = "jtang2@andrew.cmu.edu", role = c("aut", "cre")))
 Maintainer: Jingjing Tang <jtang2@andrew.cmu.edu>
-Description: Provide real-time revision forecasts.
-License: MIT + file LICENSE
+Description: Forecasts the eventual value of public-health surveillance
+    observations that are still subject to revision. From a revision archive
+    of successive releases, it builds a reporting triangle with revision
+    features and fits weighted lasso quantile regressions that predict each
+    observation's value at a chosen target lag, returning quantile forecasts
+    and weighted interval scores.
+License: file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
-Suggests: 
+Suggests:
     testthat (>= 3.0.0),
     quantgen
+Remotes:
+    ryantibs/quantgen/quantgen
 Config/testthat/edition: 3
 Imports:
-    arrow,
     dplyr,
-    english,
-    jsonlite,
-    lubridate,
     quantreg,
-    readr,
-    rlang,
+    rlang (>= 1.0.0),
     stringr,
     tibble,
-    tidyr,
-    zoo
+    tidyr
 Depends: 
     R (>= 3.5)
 LazyData: true

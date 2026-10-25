@@ -7,8 +7,12 @@
 fips_to_geovalue(df)
 }
 \arguments{
-\item{df}{data.frame}
+\item{df}{A data frame with a \code{geo_value} column, a \code{fips} column, or both.}
+}
+\value{
+\code{df} with a \code{geo_value} column and no \code{fips} column.
 }
 \description{
-Make sure data contains a \code{geo_value} field
+Renames a \code{fips} column to \code{geo_value} when \code{geo_value} is absent, and drops
+\code{fips} when both are present.
 }

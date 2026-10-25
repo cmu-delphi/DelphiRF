@@ -22,31 +22,50 @@ generate_filename(
 )
 }
 \arguments{
-\item{indicator}{Value supplied for \code{indicator}.}
+\item{indicator}{Indicator label. Used only in the model cache folder name.}
 
-\item{signal}{Value supplied for \code{signal}.}
+\item{signal}{Signal label. Used only in the model cache folder name.}
 
-\item{geo_level}{Value supplied for \code{geo_level}.}
+\item{geo_level}{Geographic level label, such as \code{"state"}. Used only
+in the model cache folder name.}
 
-\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
+\item{signal_suffix}{Optional extra label. Used only in the model cache
+folder name.}
 
-\item{lambda}{Value supplied for \code{lambda}.}
+\item{lambda}{Non-negative lasso penalty on the predictor coefficients;
+the intercept is not penalized. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and
+fits one model per value; \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} also accepts a named list with one
+value per test lag group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{gamma}{Value supplied for \code{gamma}.}
+\item{gamma}{Non-negative decay rate of the observation weights
+\code{exp(-gamma * d)}, where \code{d} is the product of the min-max normalized
+\code{value_7dav_diff} and \code{value_slope_diff} from \code{\link[=add_weights_related]{add_weights_related()}}:
+each training row's level and trend distance from the forecast-origin
+anchor for its lag. \code{0} gives equal weights. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and fits one model per
+value; \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} also accepts a named list with one value per test lag
+group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{training_end_date}{End date assigned to the training data. High-level
-forecasting functions use the latest input report date when this is empty.}
+\item{training_end_date}{A single valid date used as the training cutoff.
+When empty, \code{delphirf_nowcast_preprocessed()} uses \code{testing_start_date}, while
+\code{\link[=revision_forecast]{revision_forecast()}} and \code{\link[=cv_revision_forecast]{cv_revision_forecast()}} use the latest input
+report date. \code{delphirf_nowcast_preprocessed()} requires the cutoff not to be later than its
+forecast origin. Lower-level functions have no forecast-origin argument
+and therefore validate the date but cannot apply that ordering check.}
 
 \item{training_days}{Number of days assigned to the training target-date
 window. Functions receiving an unfiltered dataset apply this window;
 \code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
 model cache filenames.}
 
-\item{geo}{Value supplied for \code{geo}.}
+\item{geo}{Location label. Used only in the model cache file name.}
 
-\item{value_type}{Value supplied for \code{value_type}.}
+\item{value_type}{\code{"count"} or \code{"fraction"}. In the forecasting
+functions it is used only in the model cache folder name; \code{working_scale}
+sets how predictions are transformed back.}
 
-\item{test_lag_group}{Value supplied for \code{test_lag_group}.}
+\item{test_lag_group}{Label of the test lag group: one lag, such as
+\code{"3"}, or a range, such as \code{"15-21"}. It is used in the model cache file
+name.}
 
 \item{tau}{Decimal quantile to be predicted. Values must be between 0 and 1.}
 

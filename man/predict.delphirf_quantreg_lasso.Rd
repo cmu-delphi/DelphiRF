@@ -9,7 +9,10 @@
 \arguments{
 \item{object}{A fitted \code{delphirf_quantreg_lasso} object.}
 
-\item{newx}{A matrix or data frame of predictor values.}
+\item{newx}{A matrix or data frame of predictor values. When it has column
+names, they must match the fitted predictors and are reordered to the
+training order before prediction. An unnamed matrix is interpreted by
+position.}
 
 \item{...}{Additional arguments, currently ignored.}
 }

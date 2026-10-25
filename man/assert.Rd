@@ -11,6 +11,9 @@ assert(statement, msg = "")
 
 \item{msg}{a character string displayed as an additional message}
 }
+\value{
+\code{NULL}, invisibly, when \code{statement} is \code{TRUE}.
+}
 \description{
 Will issue a \code{stop} command if the given statement is false.
 }

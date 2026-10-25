@@ -1,3 +1,12 @@
+# Validate quantile levels once and preserve the first occurrence of each one.
+normalize_taus <- function(taus) {
+  taus <- as.numeric(taus)
+  if (!length(taus) || any(!is.finite(taus)) || any(taus <= 0 | taus >= 1)) {
+    stop("taus must lie strictly between zero and one.")
+  }
+  unique(taus)
+}
+
 #' Filter Training and Testing Data Based on Lag
 #'
 #' This function filters the input data based on the specified test lag and lag padding.
@@ -9,6 +18,7 @@
 #' @param lag_pad Numeric or vector, specifying the lag padding. If a single value is provided,
 #'   it is applied symmetrically. If a vector of length two is provided, the first element is used
 #'   for left padding and the second for right padding.
+#' @return The rows whose reporting lag falls in the padded lag interval.
 #'
 #' @importFrom rlang .data .env
 #'
@@ -39,55 +49,6 @@ data_filteration <- function(test_lag, data, lag_pad) {
   return (filtered_data)
 }
 
-#' Add Square Root Scale Indicator Columns
-#'
-#' This function adds new columns to the dataset to indicate
-#' the scale of values at the square root level. The function divides the range
-#' of values into 4 square root-based bins and assigns binary indicators.
-#'
-#' @param df Data frame containing the data.
-#' @param sqrt_max_raw The maximum value in the dataset, used to determine bin thresholds.
-#' @param rare_thresh Minimum relative frequency required to retain an indicator bin.
-#' @return A data frame with additional binary indicator columns for square root scaling.
-#' @export
-add_sqrtscale <- function(df, sqrt_max_raw, rare_thresh = 0.05) {
-  bin_counts <- c()
-  n <- nrow(df)
-
-  for (split in seq(0, 2)) {
-    y_col <- paste0("sqrty", split)
-    qv_pre <- sqrt_max_raw * split / 4
-    qv_next <- sqrt_max_raw * (split + 1) / 4
-
-    df[[y_col]] <- ifelse((df$value_7dav >= (qv_pre)^2) & (df$value_7dav < (qv_next)^2), 1, 0)
-    bin_counts[y_col] <- sum(df[[y_col]])
-  }
-
-  # Keep only frequent bins
-  kept_bins <- names(bin_counts)[bin_counts / n >= rare_thresh]
-  df <- df[, c(setdiff(names(df), names(bin_counts)), kept_bins)]
-
-  return(list(data = as.data.frame(df), kept_bins = kept_bins))
-}
-
-add_sqrtscale_test <- function(df, sqrt_max_raw, kept_bins) {
-  for (split in seq(0, 2)) {
-    y_col <- paste0("sqrty", split)
-    qv_pre <- sqrt_max_raw * split / 4
-    qv_next <- sqrt_max_raw * (split + 1) / 4
-
-    df[[y_col]] <- ifelse((df$value_7dav >= (qv_pre)^2) & (df$value_7dav < (qv_next)^2), 1, 0)
-  }
-
-  # Keep only the columns selected from training
-  all_sqrty_cols <- paste0("sqrty", 0:2)
-  drop_cols <- setdiff(all_sqrty_cols, kept_bins)
-  df <- df[, !(names(df) %in% drop_cols)]
-
-  return(as.data.frame(df))
-}
-
-
 #' Rearrange quantile predictions to prevent crossing
 #'
 #' Sorts each row of a prediction matrix while retaining the same fitted values.
@@ -112,23 +73,25 @@ rearrange_quantile_predictions <- function(predictions) {
 #'
 #' @param test_data Data frame containing model predictors and, when evaluated,
 #'   the response column.
-#' @param taus Numeric vector of quantile levels.
+#' @param taus Numeric vector of quantile levels. Duplicate levels are removed
+#'   while preserving first-occurrence order.
 #' @param covariates Character vector naming predictor columns.
 #' @param response Character scalar naming the response column.
 #' @param obj A fitted model object supporting [stats::predict()].
-#' @param make_evaluation Logical; calculate WIS when `TRUE`.
+#' @param make_evaluation Logical; when `TRUE`, add `wis_working`, the WIS on
+#'   the model's working (log) scale.
 #' @return A tibble containing the input prediction rows, fitted quantiles,
-#'   model metadata, and optionally WIS.
+#'   model metadata, and optionally `wis_working`.
 #' @importFrom stats predict coef
 #' @export
 get_prediction <- function(test_data, taus, covariates, response, obj,
                            make_evaluation = TRUE) {
+  taus <- normalize_taus(taus)
   # Ensure model object exists before prediction
   if (is.null(obj)) {
     stop("Model not found. Ensure the model is trained or loaded before prediction.")
   }
 
-  #start_time <- Sys.time()
   # Generate predictions
   y_hat_all <- predict(obj, newx = as.matrix(test_data[covariates]))
   y_hat_all <- matrix(as.numeric(y_hat_all), nrow= dim(test_data)[1])
@@ -137,27 +100,16 @@ get_prediction <- function(test_data, taus, covariates, response, obj,
     ordered_predictions <- rearrange_quantile_predictions(y_hat_all[, tau_order, drop = FALSE])
     y_hat_all[, tau_order] <- ordered_predictions
   }
-  test_data[paste0("predicted_tau", as.character(taus))] = y_hat_all #+ test_data[["log_value_7dav"]]
+  test_data[paste0("predicted_tau", as.character(taus))] = y_hat_all
 
   # Perform evaluation if requested
   if (make_evaluation) {
     if (!(response %in% colnames(test_data))) {
-      test_data[[response]] <- NULL
+      stop("Cannot evaluate predictions: response column '", response,
+           "' is missing from test_data.")
     }
-    test_data <-evaluate(test_data, taus, response=response)
+    test_data <- evaluate(test_data, taus, response = response, column = "wis_working")
   }
-
-  #end_time <- Sys.time()
-  #elapsed_time <- end_time - start_time
-
-  #coef_list = c(paste(covariates, '_coef', sep=''))
-  #coef_matrix = t(as.matrix(coef(obj)))
-  #coef_combined_result = data.frame(tau=taus, geo_value=geo, test_lag_group=test_lag_group,
-  #                                  training_end_date=training_end_date,
-  #                                  training_start_date=training_start_date,
-  #                                  lambda=lambda, gamma=gamma)
-  #coef_combined_result[c("intercept", coef_list)] = coef_matrix
-  #coef_combined_result[coef_list] = coef_matrix
 
   # Add metadata columns to test data
   test_data$gamma <- attr(obj, "gamma")
@@ -173,9 +125,8 @@ get_prediction <- function(test_data, taus, covariates, response, obj,
 #'
 #' @param taus Numeric vector of quantile levels.
 #' @param residuals Numeric vector of (quantile_prediction - actual) values.
-#' @param point_pred Unused; kept for interface compatibility.
 #' @keywords internal
-weighted_interval_score <- function(taus, residuals, point_pred) {
+weighted_interval_score <- function(taus, residuals) {
   # Twice the mean pinball loss.  In particular, when `taus = 0.5`,
   # this reduces exactly to absolute error and is symmetric in the sign of
   # the residual.  This matches evalcast::weighted_interval_score(), which
@@ -186,6 +137,18 @@ weighted_interval_score <- function(taus, residuals, point_pred) {
   ), na.rm = TRUE)
 }
 
+# Row-wise weighted interval score: twice the mean pinball loss over `taus`,
+# the same quantity as weighted_interval_score() for each row.
+interval_scores <- function(predictions, truth, taus) {
+  predictions <- as.matrix(predictions)
+  if (!nrow(predictions)) return(numeric(0))
+  residuals <- predictions - as.numeric(truth)
+  loss <- 2 * pmax(sweep(-residuals, 2L, taus, "*"), sweep(residuals, 2L, 1 - taus, "*"))
+  scores <- rowMeans(loss, na.rm = TRUE)
+  scores[is.nan(scores)] <- NA_real_
+  scores
+}
+
 #' Evaluation of the test results based on WIS score
 #'
 #' @param test_data dataframe with a column containing the prediction results of
@@ -193,70 +156,163 @@ weighted_interval_score <- function(taus, residuals, point_pred) {
 #'    (reference_date, report_date, location) combination.
 #' @template taus-template
 #' @param response Character scalar naming the observed response column.
+#' @param column Name of the WIS column to add.
+#' @return `test_data` with a numeric WIS column added, computed on whatever
+#'   scale `predicted_tau*` and `response` share.
 #'
 #' @export
-evaluate <- function(test_data, taus, response) {
-  n_row <- nrow(test_data)
-  taus_list <- as.list(data.frame(matrix(replicate(n_row, taus), ncol=n_row)))
+evaluate <- function(test_data, taus, response, column = "wis") {
+  taus <- normalize_taus(taus)
   pred_cols <- paste0("predicted_tau", taus)
+  test_data[[column]] <- interval_scores(test_data[pred_cols], test_data[[response]], taus)
+  test_data
+}
 
-  # Calculate WIS
-  predicted_all <- as.matrix(test_data[, pred_cols])
-  predicted_trans <- as.list(data.frame(t(predicted_all - test_data[[response]])))
-  test_data$wis <- mapply(weighted_interval_score, taus_list, predicted_trans, 0)
+# Return working-scale values to the reporting scale.
+to_reporting_scale <- function(x, working_scale) {
+  if (working_scale == "log_value") exp(x) - 1 else exp(x)
+}
 
-  return (test_data)
+# Add `wis_reporting`: the WIS of the reporting-scale predictions against the
+# target on the reporting scale. Expects exponentiate_preds() to have run.
+add_reporting_wis <- function(test_data, taus, response, working_scale) {
+  if (!response %in% names(test_data)) return(test_data)
+  truth <- to_reporting_scale(test_data[[response]], working_scale)
+  test_data$wis_reporting <- interval_scores(
+    test_data[paste0("predicted_tau", taus)], truth, taus)
+  test_data
+}
+
+# Working scales produced by data_preprocessing(). The user names one
+# explicitly; there is no default because the inverse transformation differs.
+WORKING_SCALES <- c("log_value", "log_ratio")
+
+check_working_scale <- function(working_scale) {
+  if (!is.character(working_scale) || length(working_scale) != 1L ||
+      !working_scale %in% WORKING_SCALES) {
+    stop("working_scale must be \"log_value\" (one value column, modelled as ",
+         "log(value + 1)) or \"log_ratio\" (numerator and denominator columns, ",
+         "modelled as log(numerator + 1) - log(denominator + 1)).")
+  }
+  working_scale
 }
 
 #' Un-log predicted values
 #'
-#' Inverts the response transformation used during preprocessing. Counts and
-#' fractions supplied as one value column use `log(value + 1)` and therefore
-#' require `exp(prediction) - 1`. Fractions supplied as numerator and
-#' denominator columns use `log(numerator + 1) - log(denominator + 1)` and
-#' therefore require `exp(prediction)`.
+#' Inverts the response transformation used during preprocessing. Unsuffixed
+#' `predicted_tau*` columns are returned on the reporting scale, while exact
+#' model-scale values are retained in paired `predicted_tau*_working` columns.
 #'
 #' @param test_data dataframe with a column containing the prediction results of
 #'    each requested quantile. Each row represents an update with certain
 #'    (reference_date, report_date, location) combination.
 #' @template taus-template
-#' @param value_type Either `"count"` or `"fraction"`.
-#' @param fraction_input For fraction data, either `"value"` when preprocessing
-#'   received one fraction column or `"numerator_denominator"` when it received
-#'   separate numerator and denominator columns. Ignored for counts.
+#' @template working_scale-template
+#' @return `test_data` with `predicted_tau*` on the reporting scale and the
+#'   model-scale values in `predicted_tau*_working`.
 #'
-#' @importFrom dplyr bind_cols select starts_with
-exponentiate_preds <- function(
-    test_data, taus, value_type = c("count", "fraction"),
-    fraction_input = c("value", "numerator_denominator")) {
-  value_type <- match.arg(value_type)
-  fraction_input <- match.arg(fraction_input)
+#' @export
+exponentiate_preds <- function(test_data, taus, working_scale) {
+  taus <- normalize_taus(taus)
+  working_scale <- check_working_scale(working_scale)
   pred_cols <- paste0("predicted_tau", taus)
-  predictions <- exp(test_data[, pred_cols])
-  if (value_type == "count" || fraction_input == "value") {
-    predictions <- predictions - 1
+  missing <- setdiff(pred_cols, names(test_data))
+  if (length(missing)) {
+    stop("Missing prediction columns: ", paste(missing, collapse = ", "))
   }
-
-  # Drop original predictions and join on exponentiated versions
-  test_data <- bind_cols(
-    select(test_data, -starts_with("predicted")),
-    predictions
-  )
-
+  working <- test_data[, pred_cols, drop = FALSE]
+  names(working) <- paste0(pred_cols, "_working")
+  test_data[pred_cols] <- to_reporting_scale(test_data[, pred_cols, drop = FALSE],
+                                             working_scale)
+  test_data[names(working)] <- working
   return(test_data)
+}
+
+# Version of the feature construction a cached model depends on. Increase it
+# whenever data_preprocessing() or create_params_list() changes what a
+# predictor column means, so models fitted under the old meaning are rejected.
+FEATURE_SCHEMA_VERSION <- 2L
+
+observation_weights <- function(train_data, gamma) {
+  normalize_difference <- function(x) {
+    span <- max(x) - min(x)
+    if (!is.finite(span) || span <= 0) return(rep(0, length(x)))
+    (x - min(x)) / span
+  }
+  vec_7dav <- train_data[["value_7dav_diff"]]
+  vec_slope <- train_data[["value_slope_diff"]]
+  if (!is.null(vec_7dav) && !is.null(vec_slope)) {
+    exp(-gamma * normalize_difference(vec_7dav) * normalize_difference(vec_slope))
+  } else if (!is.null(vec_7dav)) {
+    exp(-gamma * normalize_difference(vec_7dav))
+  } else if (!is.null(vec_slope)) {
+    exp(-gamma * normalize_difference(vec_slope))
+  } else {
+    NULL
+  }
+}
+
+# Write a model to a temporary file beside its destination, then rename it,
+# so a reader never sees a partly written model.
+save_model_atomically <- function(obj, model_path) {
+  create_dir_not_exist(dirname(model_path))
+  temporary <- tempfile(paste0(".", basename(model_path), "."), tmpdir = dirname(model_path))
+  on.exit(unlink(temporary), add = TRUE)
+  saveRDS(obj, file = temporary)
+  if (!file.rename(temporary, model_path)) {
+    stop("Could not move the fitted model into place: ", model_path, call. = FALSE)
+  }
+  invisible(model_path)
+}
+
+# Stop unless a cached model was fitted under exactly the requested contract.
+check_fit_contract <- function(obj, contract, model_path) {
+  cached <- attr(obj, "fit_contract")
+  if (is.null(cached)) {
+    stop("Cached model ", model_path, " has no fitting contract (it was saved by ",
+         "an older DelphiRF); refit it with train_models = TRUE.", call. = FALSE)
+  }
+  fields <- union(names(cached), names(contract))
+  differing <- fields[!vapply(fields, function(field) {
+    identical(cached[[field]], contract[[field]])
+  }, logical(1))]
+  if (length(differing)) {
+    stop("Cached model ", model_path, " was fitted under a different contract; ",
+         "differing field(s): ", paste(differing, collapse = ", "),
+         ". Refit it with train_models = TRUE.", call. = FALSE)
+  }
+  invisible(TRUE)
 }
 
 #' Retrieve or Train a Model
 #'
 #' This function retrieves a cached model if available or trains a new quantile regression model if necessary.
-#' The trained model is saved with additional metadata attributes.
+#' The trained model is saved with its `gamma`, `lambda`, `lp_solver`,
+#' `model_backend` and `fit_contract` as attributes.
 #'
-#' @param model_path Path to the cached model file.
+#' Observation weights are `exp(-gamma * d)`, where `d` is the min-max
+#' normalized `value_7dav_diff` multiplied by the normalized
+#' `value_slope_diff` (see [add_weights_related()]); a column that is absent is
+#' left out of the product.
+#'
+#' The fitting contract records everything the fitted coefficients depend on:
+#' the response, the ordered predictors, `taus`, `lambda`, `gamma`, the
+#' backend (and LP solver for `quantgen`), the feature-schema version, a
+#' fingerprint of the training predictors, response and weights, and the
+#' caller's `fit_contract` entries (such as the training cutoff and target
+#' lag). The first eight characters of the contract's hash are added to the
+#' file name (`..._c3f9a2b1.rds`), so every distinct fit has its own file and
+#' a load finds exactly the matching one. The stored contract is checked again
+#' on loading, and loading stops with the differing fields if it does not
+#' match. Models are written atomically: to a temporary file in the same
+#' folder, then renamed.
+#'
+#' @param model_path Path to the cached model file, before the contract hash
+#'   is added.
 #' @param train_data Data frame containing the training data.
 #' @param response Name of the response variable.
-#' @param tau Quantile to be predicted (between 0 and 1).
-#' @param sqrt_max_raw Maximum raw value at square root level.
-#' @param kept_bins Character vector naming retained square-root scale bins.
+#' @param taus Numeric vector of quantile levels between zero and one. Duplicate
+#'   levels are removed while preserving first-occurrence order.
 #' @template gamma-template
 #' @template lambda-template
 #' @template covariates-template
@@ -265,45 +321,39 @@ exponentiate_preds <- function(
 #' @param model_backend Quantile-regression backend. `"quantreg"` is the
 #'   default; `"quantgen"` preserves the previous implementation.
 #' @param time_limit Optional solver time limit for the `quantgen` backend.
-
-#' @return The trained or loaded model object.
+#' @param fit_contract Named list of further settings the model depends on,
+#'   added to the contract described above.
+#' @return The trained or loaded model object, with its file in the
+#'   `model_path` attribute.
 #'
 #' @importFrom stringr str_interp
-get_model <- function(model_path, train_data, covariates, response, tau,
-                      sqrt_max_raw, kept_bins,
+get_model <- function(model_path, train_data, covariates, response, taus,
                       lambda, gamma, lp_solver, train_models,
                       model_backend = c("quantreg", "quantgen"),
-                      time_limit = NULL) {
+                      time_limit = NULL, fit_contract = list()) {
   model_backend <- match.arg(model_backend)
+  x <- as.matrix(train_data[covariates])
+  storage.mode(x) <- "double"
+  y <- as.numeric(train_data[[response]])
+  weights <- observation_weights(train_data, gamma)
+  contract <- c(fit_contract, list(
+    response = response, covariates = as.character(covariates),
+    taus = as.numeric(taus), lambda = as.numeric(lambda), gamma = as.numeric(gamma),
+    model_backend = model_backend,
+    lp_solver = if (model_backend == "quantgen") lp_solver else NA_character_,
+    feature_schema = FEATURE_SCHEMA_VERSION,
+    data_fingerprint = rlang::hash(list(x = unname(x), y = y, weights = weights))
+  ))
+  model_path <- sub("\\.rds$", paste0("_c", substr(rlang::hash(contract), 1L, 8L), ".rds"),
+                    model_path)
+
   if (train_models || !file.exists(model_path)) {
     if (!train_models && !file.exists(model_path)) {
       warning(str_interp("user requested use of cached model but file ${model_path} does not exist; training new model"))
     }
-    # Quantile regression
-    vec_7dav <- train_data[["value_7dav_diff"]]
-    vec_slope <- train_data[["value_slope_diff"]]
-    normalize_difference <- function(x) {
-      span <- max(x) - min(x)
-      if (!is.finite(span) || span <= 0) return(rep(0, length(x)))
-      (x - min(x)) / span
-    }
-    if (!is.null(vec_7dav) && !is.null(vec_slope)) {
-      normalized_7dav_diff <- normalize_difference(vec_7dav)
-      normalized_slope_diff <- normalize_difference(vec_slope)
-      weights <- exp(-gamma * normalized_7dav_diff * normalized_slope_diff)
-    } else if (!is.null(vec_7dav)) {
-      normalized_7dav_diff <- normalize_difference(vec_7dav)
-      weights <- exp(-gamma * normalized_7dav_diff)
-    } else if (!is.null(vec_slope)) {
-      normalized_slope_diff <- normalize_difference(vec_slope)
-      weights <- exp(-gamma * normalized_slope_diff)
-    } else {
-      weights <- NULL
-    }
     if (model_backend == "quantreg") {
       obj <- fit_quantreg_lasso(
-        as.matrix(train_data[covariates]), train_data[[response]],
-        taus = tau, lambda = lambda, case_weights = weights,
+        x, y, taus = taus, lambda = lambda, case_weights = weights,
         standardize = TRUE
       )
     } else {
@@ -312,40 +362,25 @@ get_model <- function(model_path, train_data, covariates, response, tau,
              "Install quantgen or use the default model_backend='quantreg'.")
       }
       quantgen_args <- list(
-        as.matrix(train_data[covariates]), train_data[[response]],
-        tau = tau, lambda = lambda, standardize = TRUE,
+        x, y, tau = taus, lambda = lambda, standardize = TRUE,
         lp_solver = lp_solver, intercept = TRUE, weights = weights
       )
       if (!is.null(time_limit)) quantgen_args$time_limit <- time_limit
       obj <- do.call(quantgen::quantile_lasso, quantgen_args)
     }
 
-    # Save model to cache.
-    create_dir_not_exist(dirname(model_path))
-    # add extra infomation
-    attr(obj, "sqrt_max_raw") <- sqrt_max_raw
-    attr(obj, "kept_bins") <- kept_bins
     attr(obj, "gamma") <- gamma
     attr(obj, "lambda") <- lambda
     attr(obj, "lp_solver") <- lp_solver
     attr(obj, "model_backend") <- model_backend
-    saveRDS(obj, file=model_path)
+    attr(obj, "fit_contract") <- contract
+    save_model_atomically(obj, model_path)
   } else {
-    # Load model from cache invisibly. Object has the same name as the original
-    # model object, `obj`.
     message(str_interp("Loading from ${model_path}"))
     obj <- readRDS(model_path)
-    cached_backend <- attr(obj, "model_backend")
-    if (is.null(cached_backend)) {
-      # Models written before backend metadata existed used quantgen.
-      cached_backend <- "quantgen"
-      attr(obj, "model_backend") <- cached_backend
-    }
-    if (!identical(cached_backend, model_backend)) {
-      stop("Cached model backend is ", cached_backend,
-           " but the requested backend is ", model_backend, ".")
-    }
+    check_fit_contract(obj, contract, model_path)
   }
+  attr(obj, "model_path") <- model_path
 
   return(obj)
 }
@@ -364,7 +399,8 @@ get_model <- function(model_path, train_data, covariates, response, tau,
 #'
 #' @param x Numeric predictor matrix.
 #' @param y Numeric response vector.
-#' @param taus Quantile levels to fit.
+#' @param taus Quantile levels to fit. Duplicate levels are removed while
+#'   preserving first-occurrence order.
 #' @param lambda Non-negative lasso penalty. The intercept is unpenalized.
 #' @param case_weights Optional non-negative observation weights.
 #' @param standardize Whether to center and scale predictors before fitting.
@@ -375,14 +411,11 @@ fit_quantreg_lasso <- function(x, y, taus, lambda = 0.1,
   x <- as.matrix(x)
   storage.mode(x) <- "double"
   y <- as.numeric(y)
-  taus <- as.numeric(taus)
+  taus <- normalize_taus(taus)
   if (nrow(x) != length(y)) stop("x and y have incompatible lengths.")
   if (!nrow(x) || !ncol(x)) stop("x must contain rows and predictors.")
   if (any(!is.finite(x)) || any(!is.finite(y))) {
     stop("x and y must be finite.")
-  }
-  if (!length(taus) || any(!is.finite(taus)) || any(taus <= 0 | taus >= 1)) {
-    stop("taus must lie strictly between zero and one.")
   }
   if (length(lambda) != 1L || !is.finite(lambda) || lambda < 0) {
     stop("lambda must be one finite non-negative value.")
@@ -446,11 +479,38 @@ fit_quantreg_lasso <- function(x, y, taus, lambda = 0.1,
 #' Predict using a fitted DelphiRF quantile-lasso model
 #'
 #' @param object A fitted `delphirf_quantreg_lasso` object.
-#' @param newx A matrix or data frame of predictor values.
+#' @param newx A matrix or data frame of predictor values. When it has column
+#'   names, they must match the fitted predictors and are reordered to the
+#'   training order before prediction. An unnamed matrix is interpreted by
+#'   position.
 #' @param ... Additional arguments, currently ignored.
 #' @return A numeric vector or matrix of quantile predictions.
 #' @export
 predict.delphirf_quantreg_lasso <- function(object, newx, ...) {
+  predictor_names <- object$predictor_names
+  supplied_names <- colnames(newx)
+  if (length(predictor_names) && !is.null(supplied_names)) {
+    missing_predictors <- setdiff(predictor_names, supplied_names)
+    unexpected_predictors <- setdiff(supplied_names, predictor_names)
+    duplicated_predictors <- unique(supplied_names[duplicated(supplied_names)])
+    if (length(missing_predictors) || length(unexpected_predictors) ||
+        length(duplicated_predictors)) {
+      problems <- c(
+        if (length(missing_predictors)) {
+          paste0("missing: ", paste(missing_predictors, collapse = ", "))
+        },
+        if (length(unexpected_predictors)) {
+          paste0("unexpected: ", paste(unexpected_predictors, collapse = ", "))
+        },
+        if (length(duplicated_predictors)) {
+          paste0("duplicated: ", paste(duplicated_predictors, collapse = ", "))
+        }
+      )
+      stop("newx predictor mismatch (", paste(problems, collapse = "; "), ").",
+           call. = FALSE)
+    }
+    newx <- newx[, predictor_names, drop = FALSE]
+  }
   newx <- as.matrix(newx)
   storage.mode(newx) <- "double"
   if (ncol(newx) != length(object$centers)) {
@@ -548,22 +608,22 @@ generate_filename <- function(indicator, signal,
 }
 
 
-#' Create Parameters List
+#' Create a Predictor-Name Vector
 #'
-#' This function generates a list of parameter names based on the provided training data and lag list.
-#' It dynamically constructs parameter names using predefined constants and incorporates log lag adjustments
-#' when multiple lag values exist.
+#' This function generates a character vector of predictor names from the
+#' training data and requested lag values. It dynamically constructs the
+#' feature names and adds the inverse-lag predictor when the data contain more
+#' than one reporting lag.
 #'
 #' @param train_data Data frame containing training data, including lag values.
-#' @param lagged_term_list Numeric vector specifying the list of lags to be considered.
+#' @param lagged_term_list Numeric vector specifying the lags to be considered.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
 #' @details For daily data, all seven weekday indicators remain in the
 #'   preprocessed data, while the model parameter list omits `Sun_ref` and
 #'   `Sun_issue` to provide identifiable baseline categories.
 #'
+#' @return A character vector naming the predictor columns.
 #' @export
-#'
-#' @importFrom dplyr mutate select
 #'
 create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
   params_list <- c(

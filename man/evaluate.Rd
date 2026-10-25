@@ -4,16 +4,23 @@
 \alias{evaluate}
 \title{Evaluation of the test results based on WIS score}
 \usage{
-evaluate(test_data, taus, response)
+evaluate(test_data, taus, response, column = "wis")
 }
 \arguments{
 \item{test_data}{dataframe with a column containing the prediction results of
 each requested quantile. Each row represents an update with certain
 (reference_date, report_date, location) combination.}
 
-\item{taus}{Value supplied for \code{taus}.}
+\item{taus}{Numeric vector of quantile levels, each strictly between 0 and 1.
+Duplicate levels are removed while preserving first-occurrence order.}
 
 \item{response}{Character scalar naming the observed response column.}
+
+\item{column}{Name of the WIS column to add.}
+}
+\value{
+\code{test_data} with a numeric WIS column added, computed on whatever
+scale \verb{predicted_tau*} and \code{response} share.
 }
 \description{
 Evaluation of the test results based on WIS score

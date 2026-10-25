@@ -2,14 +2,33 @@
 #'
 #' This function trains a forecast model for a given geographical location
 #' and lag set. It assumes that the input training and testing data are
-#' already well-filtered. It also evaluates forecast accuracy using the
+#' already well-filtered: the caller selects the training window, the test
+#' rows and the lag group. It also evaluates forecast accuracy using the
 #' weighted interval score (WIS).
 #'
-#' @param train_data A data frame containing the training dataset.
-#' @param test_data A data frame containing the testing dataset.
-#' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
-#' @param taus A numeric vector specifying the quantiles for prediction intervals.
-#' @param params_list A list of model parameters used for training and prediction.
+#' One model is fitted (or loaded from the cache) for every combination of
+#' the values in `lambda` and `gamma`. With `make_predictions = TRUE` the
+#' forecasts of all combinations are stacked in the result, with `lambda` and
+#' `gamma` columns identifying each one.
+#'
+#' @param train_data A data frame containing the training dataset, with
+#'   `report_date` and `target_date` columns. Rows reported after
+#'   `training_end_date`, or whose target matures after it, are dropped before
+#'   fitting. It must already contain the weighting features added by
+#'   [add_weights_related()], with anchors built by [create_weight_anchors()]
+#'   at the forecast origin.
+#' @param test_data A data frame containing the testing dataset. It must
+#'   contain the response column; rows whose target is not yet available carry
+#'   `NA` there and receive an `NA` WIS.
+#' @param smoothed_target Logical; use the seven-day-average target response
+#'   when `TRUE`, or the unsmoothed target response when `FALSE`. This option
+#'   selects a prepared response column; it does not smooth data in this function.
+#' @param taus A numeric vector specifying the quantiles for prediction
+#'   intervals. Duplicate levels are removed while preserving first-occurrence
+#'   order.
+#' @param params_list Character vector of predictor columns. These columns form
+#'   the model design matrix and, when supplied, replace automatic predictor
+#'   selection. When `NULL`, the vector is built by [create_params_list()].
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
 #' @param temporal_resol Character; either `"daily"` or `"weekly"` resolution.
@@ -31,12 +50,18 @@
 #' @template lambda-template
 #' @template gamma-template
 #' @template value_type-template
-#' @template test_lag_group-template
+#' @template working_scale-template
 #' @template training_end_date-template
 #' @template training_days-template
 #'
 #' @return A tibble containing forecasts and, when the completed revision value
-#'   is available, evaluation scores.
+#'   is available, evaluation scores: `wis_working`, the WIS on the model's
+#'   working (log) scale, and `wis_reporting`, the WIS of the reporting-scale
+#'   predictions against the target on the reporting scale. It is empty when
+#'   `make_predictions` is `FALSE` or no test row has all its predictors.
+#'   Test rows left out because a predictor is missing are listed, with the
+#'   reason, in the `"dropped_test_rows"` attribute (see
+#'   [incomplete_test_rows()]), and their count is reported with `message()`.
 #'
 #' @importFrom dplyr %>% select bind_rows
 #' @importFrom tidyr drop_na
@@ -50,6 +75,7 @@ revision_forecast <- function(train_data, test_data, taus,
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
                               geo="ma", value_type="count",
+                              working_scale,
                               model_save_dir=default_model_save_dir(),
                               indicator="testdata", signal="",
                               geo_level="state", signal_suffix="",
@@ -60,19 +86,25 @@ revision_forecast <- function(train_data, test_data, taus,
                               model_backend = c("quantreg", "quantgen"),
                               time_limit = NULL) {
 
+  taus <- normalize_taus(taus)
   model_backend <- match.arg(model_backend)
+  working_scale <- check_working_scale(working_scale)
 
-
-
+  if (!all(c("report_date", "target_date") %in% names(train_data))) {
+    stop("train_data needs report_date and target_date columns, so that only rows ",
+         "whose target is known by training_end_date are used.")
+  }
+  training_end_date <- validate_training_end_date(
+    training_end_date,
+    default = max(train_data$report_date)
+  )
+  # A training row must be reported, and its target must have matured, by the
+  # training end date; a later target would be information from the future.
+  train_data <- train_data %>%
+    filter(report_date <= as.Date(training_end_date),
+           target_date <= as.Date(training_end_date))
   if (nrow(train_data) < 10) {
     stop("Not enough data to train.")
-  }
-
-  if (as.character(training_end_date) == "") {
-    training_end_date <- max(train_data$report_date)
-  } else {
-    train_data <- train_data %>%
-      filter(report_date <= as.Date(training_end_date))
   }
 
   if (is.null(lagged_term_list)) {
@@ -85,9 +117,29 @@ revision_forecast <- function(train_data, test_data, taus,
     }
   }
 
+  check_lagged_term_list(lagged_term_list, temporal_resol)
   if (is.null(params_list)) {
     params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
   }
+
+  # Settings a cached model must share with this call before it is reused
+  # (see get_model()); the response, predictors and data are added there.
+  fit_contract <- list(
+    training_end_date = as.character(as.Date(training_end_date)),
+    training_days = as.numeric(training_days),
+    test_lag_group = as.character(test_lag_group),
+    temporal_resol = temporal_resol,
+    target_lag = if ("target_lag" %in% names(train_data)) {
+      sort(unique(as.numeric(train_data$target_lag)))
+    } else NA_real_,
+    # The forecast context the observation weights were anchored to.
+    weight_anchors = if (all(c("ref_7dav_value", "ref_slope_value") %in% names(train_data))) {
+      anchors <- unique(as.data.frame(train_data)[c("lag", "ref_7dav_value", "ref_slope_value")])
+      anchors <- anchors[do.call(order, unname(anchors)), , drop = FALSE]
+      rownames(anchors) <- NULL
+      rlang::hash(anchors)
+    } else NA_character_
+  )
 
   if (smoothed_target) {
     response <- "log_value_target_7dav"
@@ -98,113 +150,105 @@ revision_forecast <- function(train_data, test_data, taus,
   basic_cols <- c("reference_date", "lag", "report_date")
   extra_cols <- c("value_slope_diff", "value_7dav_diff")
 
-  #Preprocess the data for a specific location
-  #train_data <- add_weights_related(train_data)
-
-  test_data_list <- list()
-
-  sqrt_max_raw <- sqrt(max(train_data$value_7dav, na.rm=TRUE))
-  train_result <- add_sqrtscale(train_data, sqrt_max_raw)
-  train_data <- train_result$data
-  kept_bins <- train_result$kept_bins
-  selected_train_cols <- c(basic_cols, params_list, extra_cols, kept_bins,
-                           response)
+  selected_train_cols <- c(basic_cols, params_list, extra_cols, response)
   train_data <- train_data[, unique(selected_train_cols)] %>% drop_na()
 
-  response_sd <- stats::sd(train_data[[response]], na.rm = TRUE)
-  if (is.na(response_sd)) {
+  if (!nrow(train_data)) {
     warning(sprintf(
       "No training rows after preprocessing [geo=%s lag_group=%s]; skipping",
       geo, test_lag_group
     ))
     return(tibble::tibble())
   }
-  if (response_sd < 1e-8) {
-    warning(sprintf(
-      "Constant training response [geo=%s lag_group=%s]; predicting constant",
-      geo, test_lag_group
-    ))
-    if (!make_predictions) return(tibble::tibble())
-    constant_value <- mean(train_data[[response]], na.rm = TRUE)
-    test_out <- test_data[
-      , intersect(c(basic_cols, response), colnames(test_data)), drop = FALSE
-    ]
-    test_out <- tidyr::drop_na(test_out, dplyr::all_of(basic_cols))
-    test_out[paste0("predicted_tau", taus)] <- constant_value
-    if (response %in% colnames(test_out)) {
-      test_out <- evaluate(test_out, taus, response = response)
-    }
-    test_out$gamma <- gamma[1]
-    test_out$lambda <- lambda[1]
-    test_out$model_backend <- model_backend
-    return(tibble::as_tibble(test_out))
-  }
 
-  # pre-process the test data with max_raw
+  dropped_test_rows <- incomplete_test_rows(test_data[0, , drop = FALSE], params_list)
   if (make_predictions) {
-    # Get model path
-    model_path <- generate_filename(indicator=indicator, signal=signal,
-                                    geo_level=geo_level, signal_suffix=signal_suffix,
-                                    lambda=lambda[1], gamma=gamma[1],
-                                    training_end_date=training_end_date,
-                                    training_days=training_days,
-                                    geo=geo, value_type=value_type,
-                                    test_lag_group=test_lag_group, tau="_all",
-                                    model_save_dir=model_save_dir)
-    if (model_backend != "quantgen") {
-      model_path <- sub("\\.rds$", paste0("_backend_", model_backend, ".rds"),
-                        model_path)
+    dropped_test_rows <- incomplete_test_rows(test_data, params_list)
+    if (nrow(dropped_test_rows)) {
+      message(sprintf(
+        "%d test row(s) not forecast: missing predictor values [geo=%s lag_group=%s]",
+        nrow(dropped_test_rows), geo, test_lag_group))
     }
-    # Get the trained_model
-    obj <- get_model(model_path, train_data, params_list, response, taus,
-                     sqrt_max_raw, kept_bins,
-                     lambda[1], gamma[1], lp_solver, train_models,
-                     model_backend = model_backend, time_limit = time_limit)
-
-    sqrt_max_raw <- attr(obj, "sqrt_max_raw")
-    kept_bins <- attr(obj, "kept_bins")
-    #test_data <- add_sqrtscale(test_data, sqrt_max_raw)
-    test_data <- add_sqrtscale_test(test_data, sqrt_max_raw, kept_bins)
     test_data <- test_data %>%
-      drop_na(!!!syms(c(params_list, kept_bins, basic_cols))) %>%
-      select(dplyr::all_of(c(basic_cols, params_list, kept_bins, response)))
-    test_data <- get_prediction(test_data, taus, params_list, response, obj,
-                                make_evaluation=TRUE)
-    test_data_list <- append(test_data_list, list(test_data))
+      drop_na(!!!syms(c(params_list, basic_cols))) %>%
+      select(dplyr::all_of(c(basic_cols, params_list, response)))
   }
 
-  # Iterate through additional lambda and gamma values
+  # Fit (or load) one model per lambda-gamma combination; predict with each
+  # only when requested, so a training-only call still saves every model.
+  test_data_list <- list()
   for (l in lambda) {
     for (g in gamma) {
-      if (l == lambda[1] & g == gamma[1]) next
-      # Get model path
       model_path <- generate_filename(indicator=indicator, signal=signal,
-                                           geo_level=geo_level, signal_suffix=signal_suffix,
-                                           lambda=l, gamma=g, training_end_date=training_end_date,
-                                           training_days=training_days,
-                                           geo=geo, value_type=value_type,
-                                           test_lag_group=test_lag_group, tau="_all",
-                                           model_save_dir=model_save_dir)
+                                      geo_level=geo_level, signal_suffix=signal_suffix,
+                                      lambda=l, gamma=g, training_end_date=training_end_date,
+                                      training_days=training_days,
+                                      geo=geo, value_type=value_type,
+                                      test_lag_group=test_lag_group, tau="_all",
+                                      model_save_dir=model_save_dir)
       if (model_backend != "quantgen") {
         model_path <- sub("\\.rds$", paste0("_backend_", model_backend, ".rds"),
                           model_path)
       }
-
-
-      # Get the trained_model
       obj <- get_model(model_path, train_data, params_list, response, taus,
-                       sqrt_max_raw, kept_bins, l, g, lp_solver, train_models,
-                       model_backend = model_backend, time_limit = time_limit)
+                       l, g, lp_solver, train_models,
+                       model_backend = model_backend, time_limit = time_limit,
+                       fit_contract = fit_contract)
 
-      if (make_predictions) {
-        test_data <- get_prediction(test_data, taus, params_list, response, obj,
-                                    make_evaluation=TRUE)
-        test_data_list <- append(test_data_list, list(test_data))
+      # Every test row may lack a predictor; the models are still fitted
+      # and saved, and this group then has no forecasts.
+      if (make_predictions && nrow(test_data)) {
+        test_data_list <- append(test_data_list, list(
+          get_prediction(test_data, taus, params_list, response, obj,
+                         make_evaluation=TRUE)
+        ))
       }
     }
   }
 
-  return(tibble::as_tibble(bind_rows(test_data_list)))
+  result <- bind_rows(test_data_list)
+  if (nrow(result)) {
+    result <- exponentiate_preds(result, taus, working_scale = working_scale)
+    result <- add_reporting_wis(result, taus, response, working_scale)
+  }
+  result <- tibble::as_tibble(result)
+  attr(result, "dropped_test_rows") <- dropped_test_rows
+  return(result)
+}
+
+#' Test rows that cannot be forecast because a predictor is missing
+#'
+#' [revision_forecast()] forecasts only test rows with every predictor and key
+#' column present. This function lists the rows it leaves out, so a caller can
+#' report them instead of losing them silently. A lagged feature is missing,
+#' for example, when the reference date `k` days earlier has no report.
+#'
+#' @param test_data Test data frame, as passed to [revision_forecast()].
+#' @param params_list Character vector of predictor columns.
+#' @return A data frame with one row per left-out test row: the identifying
+#'   columns present in `test_data` (`geo_value`, `reference_date`,
+#'   `report_date`, `lag`), `missing_features` (the missing columns, separated
+#'   by `;`), and `reason` (`"missing lagged feature"` when every missing
+#'   column is a lag-derived feature, otherwise `"missing predictor"`).
+#' @export
+incomplete_test_rows <- function(test_data, params_list) {
+  key_cols <- intersect(c("geo_value", "reference_date", "report_date", "lag"),
+                        names(test_data))
+  checked <- intersect(unique(c(params_list, "reference_date", "lag", "report_date")),
+                       names(test_data))
+  test_data <- as.data.frame(test_data)
+  missing <- is.na(test_data[, checked, drop = FALSE])
+  dropped <- which(rowSums(missing) > 0)
+  out <- test_data[dropped, key_cols, drop = FALSE]
+  missing_features <- vapply(dropped, function(i) paste(checked[missing[i, ]], collapse = ";"),
+                             character(1))
+  lagged <- vapply(strsplit(missing_features, ";", fixed = TRUE),
+                   function(cols) length(cols) > 0 && all(grepl("_lag[0-9]+$", cols)),
+                   logical(1))
+  out$missing_features <- missing_features
+  out$reason <- ifelse(lagged, "missing lagged feature", "missing predictor")
+  rownames(out) <- NULL
+  out
 }
 
 validate_genuine_event_options <- function(df, genuine_training,
@@ -231,6 +275,42 @@ validate_genuine_event_options <- function(df, genuine_training,
   invisible(TRUE)
 }
 
+# Resolve and validate the training cutoff shared by the forecasting entry
+# points. Only delphirf_nowcast_preprocessed() has an explicit forecast origin,
+# so only that caller
+# can enforce that the cutoff is not later than the origin.
+validate_training_end_date <- function(training_end_date, default,
+                                       forecast_origin = NULL) {
+  if (length(training_end_date) == 0L ||
+      (length(training_end_date) == 1L &&
+       identical(as.character(training_end_date), ""))) {
+    training_end_date <- default
+  }
+  if (length(training_end_date) != 1L) {
+    stop("training_end_date must be empty or one valid date.", call. = FALSE)
+  }
+  training_end_date <- tryCatch(
+    suppressWarnings(as.Date(training_end_date)),
+    error = function(e) as.Date(NA)
+  )
+  if (is.na(training_end_date)) {
+    stop("training_end_date must be empty or one valid date.", call. = FALSE)
+  }
+  if (!is.null(forecast_origin)) {
+    forecast_origin <- tryCatch(
+      suppressWarnings(as.Date(forecast_origin)),
+      error = function(e) as.Date(NA)
+    )
+    if (length(forecast_origin) != 1L || is.na(forecast_origin)) {
+      stop("forecast_origin must be one valid date.", call. = FALSE)
+    }
+    if (training_end_date > forecast_origin) {
+      stop("training_end_date cannot be after the forecast origin.", call. = FALSE)
+    }
+  }
+  training_end_date
+}
+
 #' Cross-Validation for Forecast Revision
 #'
 #' This function performs cross-validation to optimize WIS for forecast revision.
@@ -238,15 +318,43 @@ validate_genuine_event_options <- function(df, genuine_training,
 #' It evaluates different combinations of lambda, gamma, and lag padding values
 #' across multiple folds.
 #'
-#' @param df Data frame containing the input data.
+#' The function first keeps rows inside the training window: `report_date` on
+#' or before `training_end_date`, and `target_date` in
+#' (`training_end_date - training_days`, `training_end_date`]. Rows are then
+#' eligible validation rows are then restricted to the exact `test_lag` range
+#' and, when requested, to genuine events. After deterministic date/lag sorting,
+#' those rows are assigned to folds in turn (row 1 to fold 1, row 2 to fold 2,
+#' and so on). Training retains the full date-filtered data so `lag_pad` can add
+#' neighbouring lags. The folds are not ordered in time: a validation fold can
+#' lie between training rows. The function is intended for hyperparameter
+#' tuning within one training window, not for prospective evaluation.
+#' Candidates are compared by mean `wis_working`, the WIS on the working (log)
+#' scale. If fewer validation rows than requested folds are available, the
+#' number of folds is reduced to the number of eligible rows with a warning.
+#'
+#' Fold models are tuning by-products: unless `model_save_dir` is given, they
+#' are written to a temporary directory that is removed when the function
+#' returns, so tuning never touches the shared model cache.
+#'
+#' @param df Data frame containing the input data, with the weighting features
+#'   added by [add_weights_related()] (anchors from [create_weight_anchors()]
+#'   at `training_end_date`).
 #' @param test_lag Numeric vector specifying the test lag(s).
-#' @param taus Numeric vector of quantiles to estimate.
+#' @param taus Numeric vector of quantiles to estimate. Duplicate levels are
+#'   removed while preserving first-occurrence order.
 #' @param lambda_candidates Numeric vector of lambda values to try.
 #' @param gamma_candidates Numeric vector of gamma values to try.
-#' @param lag_pad_candidates Numeric vector of lag padding values to try.
-#' @param lagged_term_list Optional list of lagged terms to be included in the model.
-#' @param params_list Optional list of additional parameters for the model.
-#' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
+#' @param lag_pad_candidates Numeric vector of lag padding values to try. For a
+#'   test lag range `[a, b]` and candidate `p`, training uses lags from `a - p`
+#'   through `b + p`, while validation remains restricted to `[a, b]`.
+#' @param lagged_term_list Optional numeric vector of positive lag values, in
+#'   days, to include in the model.
+#' @param params_list Optional character vector naming predictor columns. These
+#'   columns form the model design matrix and, when supplied, replace automatic
+#'   predictor selection. When `NULL`, the vector is built by
+#'   [create_params_list()].
+#' @param smoothed_target Logical; use the seven-day-average target response
+#'   when `TRUE`, or the unsmoothed target response when `FALSE`.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
 #' @param n_folds Integer, number of cross-validation folds.
 #' @param genuine_training Logical; if `TRUE`, use only rows whose
@@ -257,7 +365,8 @@ validate_genuine_event_options <- function(df, genuine_training,
 #'   [revision_forecast()].
 #' @param time_limit Optional solver time limit passed to the `quantgen`
 #'   backend.
-#' @template model_save_dir-template
+#' @param model_save_dir Directory for the fold models. `NULL` (default) uses
+#'   a temporary directory removed on exit.
 #' @template indicator-template
 #' @template lp_solver-template
 #' @template signal-template
@@ -265,8 +374,15 @@ validate_genuine_event_options <- function(df, genuine_training,
 #' @template geo-template
 #' @template signal_suffix-template
 #' @template value_type-template
+#' @template working_scale-template
 #' @template training_end_date-template
 #' @template training_days-template
+#'
+#' @return A list with `best_lambda`, `best_gamma` and `best_lag_pad`, the
+#'   combination with the lowest mean WIS across folds (all three `NULL` when
+#'   no combination could be scored), and `scores`, a data frame with one row
+#'   per candidate: `lambda`, `gamma`, `lag_pad` and `mean_wis_working`
+#'   (`NA` when the candidate could not be scored).
 #'
 #' @importFrom dplyr filter
 #'
@@ -282,7 +398,8 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                  lag_pad_candidates = c(0, 1, 2, 3),
                                  lp_solver=LP_SOLVER,
                                  geo="ma", value_type="count",
-                                 model_save_dir=default_model_save_dir(),
+                                 working_scale,
+                                 model_save_dir=NULL,
                                  indicator="testdata", signal="",
                                  geo_level="state", signal_suffix="",
                                  training_end_date="",
@@ -292,13 +409,19 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
                                  genuine_testing = TRUE,
                                  model_backend = c("quantreg", "quantgen"),
                                  time_limit = NULL) {
+  taus <- normalize_taus(taus)
   model_backend <- match.arg(model_backend)
+  working_scale <- check_working_scale(working_scale)
   validate_genuine_event_options(df, genuine_training, genuine_testing)
-
-  if (as.character(training_end_date) == "") {
-    training_end_date <- max(df$report_date, na.rm = TRUE)
+  if (is.null(model_save_dir)) {
+    model_save_dir <- tempfile("delphirf-cv-")
+    on.exit(unlink(model_save_dir, recursive = TRUE), add = TRUE)
   }
-  training_end_date <- as.Date(training_end_date)
+
+  training_end_date <- validate_training_end_date(
+    training_end_date,
+    default = max(df$report_date, na.rm = TRUE)
+  )
   training_start_date <- training_end_date - training_days
   df <- df %>%
     filter(
@@ -307,37 +430,82 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
       target_date <= training_end_date
     )
 
-  folds <- rep(seq(1, n_folds), length.out = nrow(df))
+  if (length(n_folds) != 1L || is.na(n_folds) || n_folds < 1L ||
+      n_folds != as.integer(n_folds)) {
+    stop("n_folds must be one positive integer.", call. = FALSE)
+  }
+  n_folds <- as.integer(n_folds)
+
+  # Assign folds only among rows that can actually be used for validation.
+  # Keep the full date-filtered data for training so lag padding can add
+  # neighbouring lags around the exact validation range.
+  df$.cv_row_id <- seq_len(nrow(df))
+  validation_pool <- data_filteration(test_lag, df, 0)
+  if (genuine_testing) {
+    validation_pool <- validation_pool[
+      !is.na(validation_pool$genuine_event) & validation_pool$genuine_event,
+      , drop = FALSE
+    ]
+  }
+  if (nrow(validation_pool)) {
+    ordering_columns <- intersect(
+      c("reference_date", "report_date", "target_date", "lag"),
+      names(validation_pool)
+    )
+    validation_order <- do.call(
+      order,
+      c(unname(validation_pool[ordering_columns]), list(na.last = TRUE))
+    )
+    validation_pool <- validation_pool[validation_order, , drop = FALSE]
+  }
+
+  if (!nrow(validation_pool)) {
+    warning("No rows are eligible for cross-validation at test_lag.",
+            call. = FALSE)
+    effective_n_folds <- 0L
+  } else {
+    effective_n_folds <- min(n_folds, nrow(validation_pool))
+    if (effective_n_folds < n_folds) {
+      warning(
+        sprintf(
+          "Only %d rows are eligible for cross-validation; using %d folds instead of %d.",
+          nrow(validation_pool), effective_n_folds, n_folds
+        ),
+        call. = FALSE
+      )
+    }
+  }
+  folds <- rep(seq_len(effective_n_folds), length.out = nrow(validation_pool))
 
   best_lambda <- NULL
   best_gamma <- NULL
   best_pad <- NULL
   best_score <- Inf
+  candidate_scores <- list()
 
   for (lambda in lambda_candidates) {
     for (gamma in gamma_candidates) {
       for (lag_pad in lag_pad_candidates){
 
         scores <- c()
-        for (fold in 1:n_folds) {
-          validation_idx <- which(folds == fold, arr.ind = TRUE)
-          validation_data <- df[validation_idx, ]
-          training_data <- df[-validation_idx, ]
+        for (fold in seq_len(effective_n_folds)) {
+          validation_data <- validation_pool[folds == fold, , drop = FALSE]
+          training_data <- df[
+            !(df$.cv_row_id %in% validation_data$.cv_row_id),
+            , drop = FALSE
+          ]
           if (genuine_training) {
             training_data <- training_data[
               !is.na(training_data$genuine_event) & training_data$genuine_event,
               , drop = FALSE
             ]
           }
-          if (genuine_testing) {
-            validation_data <- validation_data[
-              !is.na(validation_data$genuine_event) & validation_data$genuine_event,
-              , drop = FALSE
-            ]
-          }
 
           train_data <- data_filteration(test_lag, training_data, lag_pad)
-          val_data <- data_filteration(test_lag, validation_data, 0)
+          val_data <- validation_data
+
+          train_data$.cv_row_id <- NULL
+          val_data$.cv_row_id <- NULL
 
           if (nrow(train_data) < 10L || nrow(val_data) == 0L) next
 
@@ -355,7 +523,8 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
             temporal_resol = temporal_resol,
             lambda = lambda, gamma = gamma, lp_solver = lp_solver,
             test_lag_group = prefix_for_lag, geo = geo,
-            value_type = value_type, model_save_dir = model_save_dir,
+            value_type = value_type, working_scale = working_scale,
+            model_save_dir = model_save_dir,
             indicator = indicator, signal = signal, geo_level = geo_level,
             signal_suffix = signal_suffix,
             training_end_date = training_end_date,
@@ -364,10 +533,17 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
             model_backend = model_backend, time_limit = time_limit
           )
 
-          scores <- c(scores, mean(results$wis, na.rm=TRUE))
+          scores <- c(scores, mean(results$wis_working, na.rm=TRUE))
         }
 
-        avg_score <- mean(scores, na.rm=TRUE)
+        avg_score <- if (length(scores)) {
+          mean(scores, na.rm = TRUE)
+        } else {
+          NA_real_
+        }
+        candidate_scores[[length(candidate_scores) + 1L]] <- data.frame(
+          lambda = lambda, gamma = gamma, lag_pad = lag_pad,
+          mean_wis_working = if (is.finite(avg_score)) avg_score else NA_real_)
 
         if (is.na(avg_score)) {
           avg_score <- Inf
@@ -382,19 +558,47 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
       }# lag_pad candidates
     } # gamma candidates
   } # lambda candidates
-  return(list(best_lambda = best_lambda, best_gamma = best_gamma, best_lag_pad = best_pad))
+  return(list(best_lambda = best_lambda, best_gamma = best_gamma, best_lag_pad = best_pad,
+              scores = do.call(rbind, candidate_scores)))
 }
 
-#' Revision Forecast for a Specific Location
+#' Produce DelphiRF nowcasts from preprocessed data
 #'
-#' This function performs a forecasting operation using historical data, applying
-#' hyper-parameters and lag-based adjustments for different test lag groups.
+#' This lower-level entry point fits and applies DelphiRF models to the reporting
+#' triangle returned by [data_preprocessing()]. Most users should call
+#' [delphirf_nowcast()] for one operational origin or [delphirf_backtest()] for
+#' multiple historical origins; those functions accept a raw revision archive
+#' and perform preprocessing automatically.
 #'
-#' @param df A data frame containing historical data with `target_date` and `report_date` columns.
-#' @param testing_start_date A character or Date object specifying the start date for testing.
+#' With origin `c = testing_start_date` and training end date `e` (equal to
+#' `c` unless `training_end_date` is given):
+#'
+#' - training rows have `report_date <= e` and a target that matured inside the
+#'   training window, `e - training_days < target_date <= e`;
+#' - test rows are every row of `df` with `report_date >= c`. There is no upper
+#'   limit, so pass only the releases you want forecast: to forecast a window
+#'   of `w` days, keep rows with `report_date < c + w` in `df`.
+#'
+#' Rows with a reporting lag at or beyond the target lag are already removed
+#' by [data_preprocessing()].
+#'
+#' If every gap between the distinct `lag` values in `df` is 7 days,
+#' `temporal_resol` is switched to `"weekly"` with a message.
+#'
+#' Each test lag group is fitted separately on the training rows whose lag is
+#' within `lag_pad` of the group. The default groups,
+#' [TEST_LAG_GROUPS_DAILY] and [TEST_LAG_GROUPS_WEEKLY], cover lags 0-59
+#' (daily) and 0-70 (weekly); for a different target lag, pass
+#' `test_lag_groups` that cover lags `0` to `L - 1`.
+#'
+#' @param df A data frame from [data_preprocessing()], with `target_date` and
+#'   `report_date` columns.
+#' @param testing_start_date A character or Date object giving the forecast
+#'   origin.
 #' @param genuine_training Logical; if `TRUE`, train only on rows whose
-#'   `genuine_event` value is `TRUE`. These are reports present in the raw
-#'   input, including unchanged repeated reports.
+#'   `genuine_event` value is `TRUE`. These are raw reports with usable
+#'   observed values, including unchanged repeated reports; raw-but-missing
+#'   reports and grid-created rows are excluded.
 #' @param genuine_testing Logical; if `TRUE`, predict only rows whose
 #'   `genuine_event` value is `TRUE`.
 #' @param model_backend Quantile-regression backend. `"quantreg"` is the
@@ -403,12 +607,24 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #' @param time_limit Optional solver time limit passed to the `quantgen`
 #'   backend.
 #' @param taus A numeric vector of quantiles for probabilistic forecasting.
-#' @param lagged_term_list A list of lagged terms to be used as predictors.
-#' @param params_list A list of model parameters for forecasting.
+#'   Duplicate levels are removed while preserving first-occurrence order.
+#' @param lagged_term_list Optional numeric vector of positive lag values, in
+#'   days, to include as predictors.
+#' @param params_list Optional character vector naming predictor columns. These
+#'   columns form the model design matrix and, when supplied, replace automatic
+#'   predictor selection. When `NULL`, the vector is built by
+#'   [create_params_list()].
 #' @param test_lag_groups A vector of test lag groups to process. When `NULL`,
-#'   daily or weekly defaults are selected from `temporal_resol`.
-#' @param lag_pad A numeric or named list of lag padding values (default: `LAG_PAD`).
-#' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
+#'   [TEST_LAG_GROUPS_DAILY] or [TEST_LAG_GROUPS_WEEKLY] is selected from
+#'   `temporal_resol`.
+#' @param lag_pad A numeric padding value, a two-element vector giving
+#'   `c(left_pad, right_pad)`, or a named list of such values by test lag group.
+#'   For a test lag range `[a, b]`, training uses rows with lags from
+#'   `a - left_pad` through `b + right_pad`, while predictions remain restricted
+#'   to `[a, b]`. A scalar supplies the same padding on both sides (default:
+#'   `LAG_PAD`).
+#' @param smoothed_target Logical; use the seven-day-average target response
+#'   when `TRUE`, or the unsmoothed target response when `FALSE`.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
 #' @template train_models-template
 #' @template make_predictions-template
@@ -422,17 +638,21 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #' @template lambda-template
 #' @template gamma-template
 #' @template value_type-template
+#' @template working_scale-template
 #' @template training_end_date-template
 #' @template training_days-template
 #'
-#' @details Lag groups with fewer than ten eligible training rows are skipped
-#'   rather than stopping forecasts for the remaining groups.
-#' @return A tibble containing the available forecasts across requested lag
+#' @details Lag groups with fewer than ten eligible training rows, or with no
+#'   test rows, are skipped rather than stopping forecasts for the remaining
 #'   groups.
+#' @return A tibble containing the available forecasts across requested lag
+#'   groups. Its `"dropped_test_rows"` attribute lists the test rows left out
+#'   because a predictor is missing (see [incomplete_test_rows()]), with a
+#'   `test_lag_group` column.
 #'
 #' @importFrom dplyr %>% filter bind_rows
 #' @export
-DelphiRF <- function(df, testing_start_date, taus=TAUS,
+delphirf_nowcast_preprocessed <- function(df, testing_start_date, taus=TAUS,
                      test_lag_groups=NULL,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
@@ -441,6 +661,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
                      geo="ma", value_type="count",
+                     working_scale,
                      model_save_dir=default_model_save_dir(),
                      indicator="testdata", signal="",
                      geo_level="state", signal_suffix="",
@@ -453,9 +674,17 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      model_backend = c("quantreg", "quantgen"),
                      time_limit = NULL) {
 
+  taus <- normalize_taus(taus)
   testing_start_date <- as.Date(testing_start_date)
   model_backend <- match.arg(model_backend)
+  working_scale <- check_working_scale(working_scale)
   validate_genuine_event_options(df, genuine_training, genuine_testing)
+
+  effective_training_end_date <- validate_training_end_date(
+    training_end_date,
+    default = testing_start_date,
+    forecast_origin = testing_start_date
+  )
 
   # ---- Auto-detect temporal resolution from lag spacing ----
   if ("lag" %in% names(df)) {
@@ -482,15 +711,19 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
   }
 
   geo_train_data <- df %>%
-    dplyr::filter(.data$report_date < testing_start_date) %>%
-    dplyr::filter(.data$target_date <= testing_start_date) %>%
-    dplyr::filter(.data$target_date > testing_start_date - training_days)
+    dplyr::filter(.data$report_date <= testing_start_date) %>%
+    dplyr::filter(.data$report_date <= effective_training_end_date) %>%
+    dplyr::filter(.data$target_date <= effective_training_end_date) %>%
+    dplyr::filter(.data$target_date > effective_training_end_date - training_days)
   if (genuine_training) {
     geo_train_data <- geo_train_data %>%
       dplyr::filter(!is.na(.data$genuine_event) & .data$genuine_event)
   }
-  # Add weighting-related features to training data
-  geo_train_data <- add_weights_related(geo_train_data)
+  # Similarity weights compare training rows with the reporting context at
+  # this origin: one anchor per lag from every row reported by the origin,
+  # whether or not its target has matured or it is a genuine report.
+  weight_anchors <- create_weight_anchors(df, testing_start_date)
+  geo_train_data <- add_weights_related(geo_train_data, weight_anchors)
 
   geo_test_data <- df %>%
     dplyr::filter(.data$report_date >= testing_start_date)
@@ -500,6 +733,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
   }
 
   test_data_list <- list()
+  dropped_list <- list()
 
   # Split the test lag group if it's a range (e.g., "15-21")
   for (test_lag_group in test_lag_groups) {
@@ -531,16 +765,30 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       temporal_resol = temporal_resol,
       lambda = l, gamma = g, lp_solver = lp_solver,
       test_lag_group = test_lag_group, geo = geo, value_type = value_type,
+      working_scale = working_scale,
       model_save_dir = model_save_dir, indicator = indicator, signal = signal,
       geo_level = geo_level, signal_suffix = signal_suffix,
-      training_end_date = as.character(testing_start_date),
+      training_end_date = as.character(effective_training_end_date),
       training_days = training_days, train_models = train_models,
       make_predictions = make_predictions,
       model_backend = model_backend, time_limit = time_limit
     )
 
     test_data_list <- append(test_data_list, list(results))
+    group_dropped <- attr(results, "dropped_test_rows")
+    if (!is.null(group_dropped) && nrow(group_dropped)) {
+      group_dropped$test_lag_group <- as.character(test_lag_group)
+      dropped_list <- append(dropped_list, list(group_dropped))
+    }
   }
-  return(tibble::as_tibble(bind_rows(test_data_list)))
+  result <- tibble::as_tibble(bind_rows(test_data_list))
+  attr(result, "dropped_test_rows") <- if (length(dropped_list)) {
+    as.data.frame(bind_rows(dropped_list))
+  } else {
+    data.frame(reference_date = as.Date(character()), report_date = as.Date(character()),
+               lag = numeric(), missing_features = character(), reason = character(),
+               test_lag_group = character())
+  }
+  return(result)
 
 }

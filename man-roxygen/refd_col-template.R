@@ -1,2 +1,1 @@
-#' @param refd_col Value supplied for `refd_col`.
-
+#' @param refd_col Name of the reference-date column.

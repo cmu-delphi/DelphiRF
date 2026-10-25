@@ -1,8 +1,40 @@
 #' Constants
 #'
-#' These constants are used for forecast revision.
-#' @title Constants
-#' @description A set of constants used in the model.
+#' Default settings and column names shared by the DelphiRF functions.
+#'
+#' @description
+#' - `TAUS`: quantile levels forecast by default. Together with the median they
+#'   give the 50%, 80%, 95% and 98% central prediction intervals.
+#' - `REF_LAG`: a default target lag \eqn{L}, in days.
+#' - `LAG_PAD`: default number of neighbouring reporting lags added on each
+#'   side of a test lag group when selecting its training rows (see
+#'   [data_filteration()]).
+#' - `TRAINING_DAYS`: a default training-window length, in days.
+#' - `LAMBDA`: default lasso penalty for the quantile regression.
+#' - `GAMMA`: default decay rate of the observation weights built by
+#'   [add_weights_related()].
+#' - `LP_SOLVER`: linear-programming solver used only by the optional
+#'   `quantgen` backend.
+#' - `YITL`: column holding the log-transformed provisional value,
+#'   `log_value_raw`.
+#' - `SLOPE`: column holding the log 7-day slope, `log_7dav_slope`.
+#' - `Y7DAV`: column holding the log-transformed 7-day average,
+#'   `log_value_7dav`; always a model predictor.
+#' - `RESPONSE`: column holding the unsmoothed log target, `log_value_target`.
+#' - `LOG_LAG`: column holding the inverse-lag predictor `inv_log_lag`, equal
+#'   to `1 / (lag + 1)`. It is added when the training data span more than one
+#'   lag.
+#' - `WEEKDAYS_ABBR`: weekday labels used for the `_ref` and `_issue`
+#'   indicators, Monday to Sunday.
+#' - `WEEK_ISSUES`: week-of-month indicators for the report date. Weeks 4 and
+#'   later are the baseline category (see [add_weekofmonth()]).
+#' - `TEST_LAG_GROUPS_DAILY`: default test lag groups for daily data. The
+#'   groups cover lags 0 to 59, so they suit target lags of 60 days.
+#' - `TEST_LAG_GROUPS_WEEKLY`: default test lag groups for weekly data,
+#'   lags 0 to 70 in steps of 7 days.
+#'
+#' @name constants
+NULL
 
 #' @rdname constants
 #' @export
@@ -30,9 +62,8 @@ GAMMA <- 0.1
 
 #' @rdname constants
 #' @export
-LP_SOLVER <- "gurobi" # LP solver to use in quantile_lasso(); "gurobi" or "glpk"
+LP_SOLVER <- "gurobi"
 
-# Response Variables
 #' @rdname constants
 #' @export
 YITL <- "log_value_raw"
@@ -53,22 +84,13 @@ RESPONSE <- "log_value_target"
 #' @export
 LOG_LAG <- "inv_log_lag"
 
-# Dates
 #' @rdname constants
 #' @export
-WEEKDAYS_ABBR <- c("Mon", "Tue", "Wed", "Thurs", "Fri", "Sat", "Sun") # wd
+WEEKDAYS_ABBR <- c("Mon", "Tue", "Wed", "Thurs", "Fri", "Sat", "Sun")
 
 #' @rdname constants
 #' @export
-WEEK_ISSUES <- c("W1_issue", "W2_issue", "W3_issue") # wm
-
-#' @rdname constants
-#' @export
-SQRT_SCALES <- c("sqrty0", "sqrty1", "sqrty2")
-
-#' @rdname constants
-#' @export
-TODAY <- Sys.Date()
+WEEK_ISSUES <- c("W1_issue", "W2_issue", "W3_issue")
 
 #' @rdname constants
 #' @export
@@ -77,17 +99,3 @@ TEST_LAG_GROUPS_DAILY <- c(as.character(0:14), c("15-21", "22-35", "36-49", "50-
 #' @rdname constants
 #' @export
 TEST_LAG_GROUPS_WEEKLY <- c(as.character(seq(0, 70, 7)))
-
-
-# For Delphi Signals
-#' @importFrom tibble tribble
-#' @rdname constants
-#' @export
-INDICATORS_AND_SIGNALS <- tibble::tribble(
-  ~indicator, ~signal, ~name_suffix, ~sub_dir,
-  "changehc", "covid", "", "chng",
-  "changehc", "flu", "", "chng",
-  "claims_hosp", "", "", "claims_hosp",
-  # "dv",,,
-  "quidel", "covidtest", c("total", "age_0_4", "age_5_17", "age_18_49", "age_50_64", "age_65plus", "age_0_17"), "quidel_covidtest"
-)

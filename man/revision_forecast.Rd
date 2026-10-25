@@ -18,6 +18,7 @@ revision_forecast(
   test_lag_group = "",
   geo = "ma",
   value_type = "count",
+  working_scale,
   model_save_dir = default_model_save_dir(),
   indicator = "testdata",
   signal = "",
@@ -32,32 +33,67 @@ revision_forecast(
 )
 }
 \arguments{
-\item{train_data}{A data frame containing the training dataset.}
+\item{train_data}{A data frame containing the training dataset, with
+\code{report_date} and \code{target_date} columns. Rows reported after
+\code{training_end_date}, or whose target matures after it, are dropped before
+fitting. It must already contain the weighting features added by
+\code{\link[=add_weights_related]{add_weights_related()}}, with anchors built by \code{\link[=create_weight_anchors]{create_weight_anchors()}}
+at the forecast origin.}
 
-\item{test_data}{A data frame containing the testing dataset.}
+\item{test_data}{A data frame containing the testing dataset. It must
+contain the response column; rows whose target is not yet available carry
+\code{NA} there and receive an \code{NA} WIS.}
 
-\item{taus}{A numeric vector specifying the quantiles for prediction intervals.}
+\item{taus}{A numeric vector specifying the quantiles for prediction
+intervals. Duplicate levels are removed while preserving first-occurrence
+order.}
 
-\item{smoothed_target}{A logical value indicating whether the target variable should be smoothed.}
+\item{smoothed_target}{Logical; use the seven-day-average target response
+when \code{TRUE}, or the unsmoothed target response when \code{FALSE}. This option
+selects a prepared response column; it does not smooth data in this function.}
 
 \item{lagged_term_list}{A numeric vector specifying the lag values for which reported
 values on the reference date are considered in model training.}
 
-\item{params_list}{A list of model parameters used for training and prediction.}
+\item{params_list}{Character vector of predictor columns. These columns form
+the model design matrix and, when supplied, replace automatic predictor
+selection. When \code{NULL}, the vector is built by \code{\link[=create_params_list]{create_params_list()}}.}
 
 \item{temporal_resol}{Character; either \code{"daily"} or \code{"weekly"} resolution.}
 
-\item{lambda}{Value supplied for \code{lambda}.}
+\item{lambda}{Non-negative lasso penalty on the predictor coefficients;
+the intercept is not penalized. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and
+fits one model per value; \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} also accepts a named list with one
+value per test lag group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{gamma}{Value supplied for \code{gamma}.}
+\item{gamma}{Non-negative decay rate of the observation weights
+\code{exp(-gamma * d)}, where \code{d} is the product of the min-max normalized
+\code{value_7dav_diff} and \code{value_slope_diff} from \code{\link[=add_weights_related]{add_weights_related()}}:
+each training row's level and trend distance from the forecast-origin
+anchor for its lag. \code{0} gives equal weights. \code{\link[=revision_forecast]{revision_forecast()}} accepts a vector and fits one model per
+value; \code{\link[=delphirf_nowcast_preprocessed]{delphirf_nowcast_preprocessed()}} also accepts a named list with one value per test lag
+group and an \code{others} entry (see \code{\link[=handle_hyperparam]{handle_hyperparam()}}).}
 
-\item{lp_solver}{Value supplied for \code{lp_solver}.}
+\item{lp_solver}{Linear-programming solver for the optional \code{quantgen}
+backend, \code{"gurobi"} or \code{"glpk"}. Ignored by the default \code{quantreg}
+backend.}
 
-\item{test_lag_group}{Value supplied for \code{test_lag_group}.}
+\item{test_lag_group}{Label of the test lag group: one lag, such as
+\code{"3"}, or a range, such as \code{"15-21"}. It is used in the model cache file
+name.}
 
-\item{geo}{Value supplied for \code{geo}.}
+\item{geo}{Location label. Used only in the model cache file name.}
 
-\item{value_type}{Value supplied for \code{value_type}.}
+\item{value_type}{\code{"count"} or \code{"fraction"}. In the forecasting
+functions it is used only in the model cache folder name; \code{working_scale}
+sets how predictions are transformed back.}
+
+\item{working_scale}{Required; there is no default. The scale the model
+is fitted on, which sets how predictions are returned to the reporting
+scale: \code{"log_value"} when preprocessing received one value column (a count
+or a directly supplied rate), modelled as \code{log(value + 1)}; \code{"log_ratio"}
+when it received numerator and denominator columns, modelled as
+\code{log(numerator + 1) - log(denominator + 1)}.}
 
 \item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
 models are stored by default in DelphiRF's platform-specific user cache
@@ -65,25 +101,36 @@ directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
 can be reused across R sessions. Older R versions use a session temporary
 directory. Supply an explicit path to use a different location.}
 
-\item{indicator}{Value supplied for \code{indicator}.}
+\item{indicator}{Indicator label. Used only in the model cache folder name.}
 
-\item{signal}{Value supplied for \code{signal}.}
+\item{signal}{Signal label. Used only in the model cache folder name.}
 
-\item{geo_level}{Value supplied for \code{geo_level}.}
+\item{geo_level}{Geographic level label, such as \code{"state"}. Used only
+in the model cache folder name.}
 
-\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
+\item{signal_suffix}{Optional extra label. Used only in the model cache
+folder name.}
 
-\item{training_end_date}{End date assigned to the training data. High-level
-forecasting functions use the latest input report date when this is empty.}
+\item{training_end_date}{A single valid date used as the training cutoff.
+When empty, \code{delphirf_nowcast_preprocessed()} uses \code{testing_start_date}, while
+\code{\link[=revision_forecast]{revision_forecast()}} and \code{\link[=cv_revision_forecast]{cv_revision_forecast()}} use the latest input
+report date. \code{delphirf_nowcast_preprocessed()} requires the cutoff not to be later than its
+forecast origin. Lower-level functions have no forecast-origin argument
+and therefore validate the date but cannot apply that ordering check.}
 
 \item{training_days}{Number of days assigned to the training target-date
 window. Functions receiving an unfiltered dataset apply this window;
 \code{\link[=revision_forecast]{revision_forecast()}} expects pre-filtered input and records the value in
 model cache filenames.}
 
-\item{train_models}{Value supplied for \code{train_models}.}
+\item{train_models}{Logical; when \code{TRUE}, fit new models and overwrite
+the cache. When \code{FALSE}, load cached models; a missing model is fitted
+with a warning, and a cached model fitted under a different contract
+(response, predictors, \code{taus}, hyperparameters, training cutoff and
+window, target lag, or training data; see \code{\link[=get_model]{get_model()}}) is an error.}
 
-\item{make_predictions}{Value supplied for \code{make_predictions}.}
+\item{make_predictions}{Logical; when \code{TRUE}, forecast the test rows.
+When \code{FALSE}, only fit (or load) and cache the models.}
 
 \item{model_backend}{Quantile-regression backend. \code{"quantreg"} is the
 default, using standardized predictors and weighted lasso fits.
@@ -94,11 +141,24 @@ backend. It is ignored by the default \code{quantreg} backend.}
 }
 \value{
 A tibble containing forecasts and, when the completed revision value
-is available, evaluation scores.
+is available, evaluation scores: \code{wis_working}, the WIS on the model's
+working (log) scale, and \code{wis_reporting}, the WIS of the reporting-scale
+predictions against the target on the reporting scale. It is empty when
+\code{make_predictions} is \code{FALSE} or no test row has all its predictors.
+Test rows left out because a predictor is missing are listed, with the
+reason, in the \code{"dropped_test_rows"} attribute (see
+\code{\link[=incomplete_test_rows]{incomplete_test_rows()}}), and their count is reported with \code{message()}.
 }
 \description{
 This function trains a forecast model for a given geographical location
 and lag set. It assumes that the input training and testing data are
-already well-filtered. It also evaluates forecast accuracy using the
+already well-filtered: the caller selects the training window, the test
+rows and the lag group. It also evaluates forecast accuracy using the
 weighted interval score (WIS).
+}
+\details{
+One model is fitted (or loaded from the cache) for every combination of
+the values in \code{lambda} and \code{gamma}. With \code{make_predictions = TRUE} the
+forecasts of all combinations are stacked in the result, with \code{lambda} and
+\code{gamma} columns identifying each one.
 }

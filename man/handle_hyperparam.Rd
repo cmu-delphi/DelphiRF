@@ -18,8 +18,9 @@ The selected hyperparameter value as a numeric.
 This function selects the appropriate hyperparameter value based on whether
 \code{param} is a named list or a single numeric value. If \code{param} is a list and
 \code{test_lag_group} exists as a key, it returns the corresponding value. If not,
-it falls back to \code{param$others}. If \code{param} has no names, it assumes a single
-numeric value and returns it.
+it falls back to \code{param$others}; a list with neither an entry for
+\code{test_lag_group} nor an \code{others} entry is an error. If \code{param} is not a
+list, it is returned as a number.
 }
 \examples{
 # Case where param is a single numeric value

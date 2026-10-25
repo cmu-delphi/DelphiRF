@@ -18,7 +18,8 @@ fit_quantreg_lasso(
 
 \item{y}{Numeric response vector.}
 
-\item{taus}{Quantile levels to fit.}
+\item{taus}{Quantile levels to fit. Duplicate levels are removed while
+preserving first-occurrence order.}
 
 \item{lambda}{Non-negative lasso penalty. The intercept is unpenalized.}
 

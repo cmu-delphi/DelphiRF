@@ -9,6 +9,9 @@ msg_ts(text)
 \arguments{
 \item{text}{the body of the message to display}
 }
+\value{
+\code{NULL}, invisibly, after emitting the timestamped message.
+}
 \description{
 Write a message to the console with the current time
 }

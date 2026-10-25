@@ -1,2 +1,2 @@
-#' @param make_predictions Value supplied for `make_predictions`.
-
+#' @param make_predictions Logical; when `TRUE`, forecast the test rows.
+#'   When `FALSE`, only fit (or load) and cache the models.

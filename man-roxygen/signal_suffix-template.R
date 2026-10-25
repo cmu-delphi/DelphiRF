@@ -1,2 +1,2 @@
-#' @param signal_suffix Value supplied for `signal_suffix`.
-
+#' @param signal_suffix Optional extra label. Used only in the model cache
+#'   folder name.

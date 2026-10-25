@@ -31,7 +31,8 @@ test_that("modern tidyverse operations are warning-free", {
     log_value_7dav = log1p(c(10, 11, 12, 13)),
     log_value_7dav_lag7 = log1p(c(8, 9, 10, 11))
   )
-  expect_no_warning(weight_result <- add_weights_related(weight_data))
+  expect_no_warning(weight_result <- add_weights_related(
+    weight_data, create_weight_anchors(weight_data, as.Date("2024-01-04"))))
   expect_true(all(c("value_slope_diff", "value_7dav_diff") %in%
                     names(weight_result)))
 })

@@ -4,15 +4,26 @@
 \alias{add_weights_related}
 \title{Add Weight-Related Features to a Dataframe}
 \usage{
-add_weights_related(df)
+add_weights_related(df, anchors)
 }
 \arguments{
-\item{df}{A dataframe containing the necessary columns for computation.}
+\item{df}{A data frame containing \code{log_value_7dav}, \code{log_value_7dav_lag7},
+\code{lag} and any \code{by} columns used to build \code{anchors}.}
+
+\item{anchors}{A data frame from \code{\link[=create_weight_anchors]{create_weight_anchors()}}. Every column
+other than \code{ref_7dav_value} and \code{ref_slope_value} is a join key, so it
+must hold one anchor per key.}
 }
 \value{
-A dataframe with additional computed columns for weight-related metrics.
+A data frame with \code{log_7dav_slope}, \code{ref_slope_value},
+\code{ref_7dav_value}, \code{value_slope_diff}, and \code{value_7dav_diff} added.
+It is an error if a row with complete values has no anchor for its lag.
 }
 \description{
-This function calculates various weight-related features for a given dataframe,
-including the difference in days, log slope, and differences in values relative to reference data.
+This function compares each row's log seven-day-average level and weekly log
+change with the anchor for its reporting lag, as built by
+\code{\link[=create_weight_anchors]{create_weight_anchors()}} at the forecast origin. Apply it to training rows
+only; test rows do not receive similarity weights. \code{\link[=get_model]{get_model()}} turns the
+two distances into weights \code{exp(-gamma * level * trend)}, after min-max
+normalizing each distance across the training rows of that model fit.
 }

@@ -11,8 +11,8 @@ add_weekofmonth(df, time_col, wm = WEEK_ISSUES)
 
 \item{time_col}{Name of the column containing date values.}
 
-\item{wm}{Character vector specifying week labels (e.g., "W1", "W2", "W3", "W4").
-Default is \code{WEEK_ISSUES}.}
+\item{wm}{Character vector naming indicator columns. The default creates
+\code{W1_issue}, \code{W2_issue}, and \code{W3_issue}; week 4 is the baseline category.}
 }
 \value{
 A modified data frame with additional one-hot encoded columns for the

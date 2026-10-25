@@ -101,6 +101,22 @@ test_that("add_7davs correctly computes report_date and 7dav", {
 })
 
 
+test_that("add_7davs preserves missing-window and short-group behavior", {
+  dates <- as.Date("2024-01-01") + 0:8
+  input <- data.frame(
+    reference_date = dates,
+    lag = 0,
+    value_raw = c(1:6, NA, 8:9)
+  )
+
+  result <- add_7davs(input, "value_raw", "reference_date", "lag")
+  expect_equal(result$value_7dav, rep(NA_real_, 9))
+
+  short <- add_7davs(input[1:4, ], "value_raw", "reference_date", "lag")
+  expect_equal(short$value_7dav, rep(NA_real_, 4))
+})
+
+
 
 test_that("add_lagged_terms correctly adds lagged columns for daily data", {
   # Create sample data
@@ -127,90 +143,40 @@ test_that("add_lagged_terms correctly adds lagged columns for daily data", {
 
 
 
-test_that("add_targets correctly adds target columns", {
-  # Create a sample dataframe
-  test_df <- data.frame(ref_date = c(as.Date("2022-01-03"), as.Date("2022-01-03"),
-                                     as.Date("2022-01-03"), as.Date("2022-01-03"),
-                                     as.Date("2022-01-04"), as.Date("2022-01-04"),
-                                     as.Date("2022-01-04"), as.Date("2022-01-07"),
-                                     as.Date("2022-01-07"), as.Date("2022-01-09"),
-                                     as.Date("2022-01-09"),as.Date("2022-01-10"),
-                                     as.Date("2022-01-10"),as.Date("2022-01-11")
-  ),
-  lag = c(0, 3, 5, 8, 0, 2, 7, 1, 3, 0, 2, 0, 1, 0),
-  value_raw=c(100, 200, 500, 1000, 0, 200, 220, 50, 300, 20, 50, 60, 120, 30))
-  df <- fill_missing_updates(test_df, value_col = "value_raw", refd_col = "ref_date",
-                             lag_col = "lag", temporal_resol = "daily")
-  df$value_7dav <- df$value_raw
-
-  # Apply function with a reference lag of 3
-  df_new <- add_targets(df, value_col = "value_raw", refd_col = "ref_date",
-                        lag_col = "lag", ref_lag = 3, temporal_resol = "daily")
-
-  # Check if target columns are added
-  expect_true("value_target" %in% colnames(df_new))
-  expect_true("value_target_7dav" %in% colnames(df_new))
-  expect_true("target_date" %in% colnames(df_new))
-
-  # Verify correct target values
-  expect_equal(unique(df_new[df_new$ref_date == as.Date("2022-01-03"), "value_target"]), 200)
-  expect_equal(unique(df_new[df_new$ref_date == as.Date("2022-01-04"), "value_target_7dav"]), 200)
-  expect_equal(unique(df_new[df_new$ref_date == as.Date("2022-01-10"), "value_target"]), NA_real_)
-})
-
-test_that("create_target_lookup selects latest genuine revision in window", {
+test_that("create_target_lookup fixes maturity at the requested target lag", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-01"),
     lag = c(50, 59, 61, 62, 70),
     value = c(10, 10, 12, 15, 20)
   )
-  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60, 1, 2)
-  expect_equal(target$target_lag, 62)
-  expect_equal(target$target_date, as.Date("2024-03-03"))
-  expect_equal(target$target_type, "revision")
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60)
+  expect_equal(target$target_lag, 60)
+  expect_equal(target$target_date, as.Date("2024-03-01"))
+  expect_equal(target$target_source_lag, 59)
+  expect_equal(target$target_value_source, "carried_forward")
 })
 
-test_that("create_target_lookup detects a change in any fraction component", {
+test_that("create_target_lookup records an exact release separately from maturity", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-01"),
-    lag = c(50, 59, 61, 62),
-    numerator = c(10, 10, 10, 10),
-    denominator = c(100, 100, 200, 200)
+    lag = c(50, 59, 60, 62),
+    value = c(10, 10, 12, 15)
   )
-
-  target <- create_target_lookup(
-    raw, c("numerator", "denominator"), "ref_date", "lag", 60, 1, 2
-  )
-
-  expect_equal(target$target_lag, 61)
-  expect_equal(target$target_date, as.Date("2024-03-02"))
-  expect_equal(target$target_type, "revision")
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60)
+  expect_equal(target$target_lag, 60)
+  expect_equal(target$target_source_lag, 60)
+  expect_equal(target$target_value_source, "exact_release")
 })
 
-test_that("create_target_lookup falls back to latest raw value at lower bound", {
-  raw <- data.frame(
-    ref_date = as.Date("2024-01-01"),
-    lag = c(40, 55, 59, 70),
-    value = c(8, 10, 10, 20)
-  )
-  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60, 1, 2)
-  expect_equal(target$target_lag, 59)
-  expect_equal(target$target_type, "fallback")
-})
-
-test_that("create_target_lookup clamps its upper date to target_as_of_date", {
+test_that("create_target_lookup does not use reports after the target lag", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-01"),
     lag = c(50, 59, 61, 62, 70),
     value = c(10, 10, 12, 15, 20)
   )
-  target <- create_target_lookup(
-    raw, "value", "ref_date", "lag", 60, 1, 10, "daily",
-    target_as_of_date = as.Date("2024-03-02")
-  )
-  expect_equal(target$target_lag, 61)
-  expect_equal(target$target_date, as.Date("2024-03-02"))
-  expect_equal(target$target_type, "revision")
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 60)
+  expect_equal(target$target_source_lag, 59)
+  expect_equal(target$target_value_source, "carried_forward")
 })
 
 test_that("omitting target_as_of_date preserves the original target behavior", {
@@ -221,41 +187,56 @@ test_that("omitting target_as_of_date preserves the original target behavior", {
   )
 
   legacy_call <- create_target_lookup(
-    raw, "value", "ref_date", "lag", 7, 1, 2, "daily"
+    raw, "value", "ref_date", "lag", 7, temporal_resol = "daily"
   )
   explicit_default <- create_target_lookup(
-    raw, "value", "ref_date", "lag", 7, 1, 2, "daily",
+    raw, "value", "ref_date", "lag", 7, temporal_resol = "daily",
     target_as_of_date = NULL
   )
 
   expect_identical(legacy_call, explicit_default)
 })
 
-test_that("target cutoff cannot use a future fallback observation", {
+test_that("as_of_date withholds targets until requested maturity", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-01"),
     lag = c(40, 50, 59, 70),
     value = c(8, 10, 10, 20)
   )
-  target <- create_target_lookup(
-    raw, "value", "ref_date", "lag", 60, 1, 10, "daily",
+  immature <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 60, temporal_resol = "daily",
     target_as_of_date = as.Date("2024-02-20")
   )
-  expect_equal(target$target_lag, 50)
-  expect_equal(target$target_type, "fallback")
+  expect_equal(nrow(immature), 1)
+  expect_equal(immature$target_date, as.Date("2024-03-01"))
+  expect_equal(immature$target_lag, 60)
+  expect_true(is.na(immature$target_source_lag))
+  expect_true(is.na(immature$target_value_source))
+
+  mature <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 60, temporal_resol = "daily",
+    target_as_of_date = as.Date("2024-03-01")
+  )
+  expect_equal(mature$target_lag, 60)
+  expect_equal(mature$target_source_lag, 59)
+  expect_equal(mature$target_value_source, "carried_forward")
 })
 
-test_that("target cutoff omits reference dates with no available observations", {
+test_that("target cutoff retains maturity dates but withholds source metadata", {
   raw <- data.frame(
     ref_date = as.Date("2024-01-10"),
     lag = c(0, 1, 2),
     value = c(10, 12, 15)
   )
   target <- create_target_lookup(
-    raw, "value", "ref_date", "lag", 1, 0, 2, "daily",
+    raw, "value", "ref_date", "lag", 1, temporal_resol = "daily",
     target_as_of_date = as.Date("2024-01-09")
   )
-  expect_equal(nrow(target), 0)
+  expect_equal(nrow(target), 1)
+  expect_equal(target$target_date, as.Date("2024-01-11"))
+  expect_equal(target$target_lag, 1)
+  expect_true(is.na(target$target_source_lag))
+  expect_true(is.na(target$target_value_source))
 })
 
 test_that("data_preprocessing never attaches a target after its as-of date", {
@@ -268,17 +249,21 @@ test_that("data_preprocessing never attaches a target after its as-of date", {
   result <- data_preprocessing(
     raw, "value", "ref_date", "lag", 3,
     lagged_term_list = c(1), smoothed = FALSE,
-    target_lag_upper_tolerance = 3,
     target_as_of_date = cutoff
   )
   targets <- result %>%
-    distinct(reference_date, target_date, target_lag, target_type) %>%
+    distinct(reference_date, target_date, target_lag,
+             target_source_lag, target_value_source) %>%
     filter(!is.na(target_date))
 
   expect_equal(nrow(targets), 2)
-  expect_true(all(targets$target_date <= cutoff))
-  expect_equal(targets$target_lag, c(3, 2))
-  expect_equal(targets$target_type, c("revision", "fallback"))
+  expect_equal(targets$target_date,
+               as.Date(c("2024-01-04", "2024-01-05")))
+  expect_equal(targets$target_lag, c(3, 3))
+  expect_equal(targets$target_source_lag, c(3, NA))
+  expect_equal(targets$target_value_source, c("exact_release", NA))
+  immature <- result$target_date > cutoff
+  expect_true(all(is.na(result$value_target[immature])))
 })
 
 test_that("create_target_lookup never selects negative reporting lags", {
@@ -287,9 +272,110 @@ test_that("create_target_lookup never selects negative reporting lags", {
     lag = c(-7, 5),
     value = c(5, 8)
   )
-  target <- create_target_lookup(raw, "value", "ref_date", "lag", 7)
-  expect_equal(target$target_lag, 5)
-  expect_equal(target$target_type, "fallback")
+  target <- create_target_lookup(
+    raw, "value", "ref_date", "lag", 7,
+    target_as_of_date = as.Date("2024-01-17")
+  )
+  expect_equal(target$target_lag, 7)
+  expect_equal(target$target_source_lag, 5)
+  expect_equal(target$target_value_source, "carried_forward")
+})
+
+test_that("create_target_lookup quietly returns a typed empty lookup for invalid lags", {
+  expected <- data.frame(
+    reference_date = as.Date(character()),
+    target_date = as.Date(character()),
+    target_lag = numeric(),
+    target_source_lag = numeric(),
+    target_value_source = character()
+  )
+  negative_only <- data.frame(
+    ref_date = as.Date(c("2024-01-10", "2024-01-11")),
+    lag = c(-7, -1),
+    value = c(5, 8)
+  )
+  all_missing <- data.frame(
+    ref_date = as.Date(c("2024-01-10", "2024-01-11")),
+    lag = c(NA_real_, NA_real_),
+    value = c(5, 8)
+  )
+
+  expect_no_warning(
+    negative_result <- create_target_lookup(
+      negative_only, "value", "ref_date", "lag", 7
+    )
+  )
+  expect_no_warning(
+    missing_result <- create_target_lookup(
+      all_missing, "value", "ref_date", "lag", 7
+    )
+  )
+  expect_identical(negative_result, expected)
+  expect_identical(missing_result, expected)
+})
+
+test_that("create_target_lookup ignores reports without usable values", {
+  raw <- data.frame(
+    ref_date = as.Date("2024-01-01"),
+    lag = c(0, 1, 2),
+    value = c(10, NA, 12)
+  )
+  target <- create_target_lookup(raw, "value", "ref_date", "lag", 1,
+                                 target_as_of_date = as.Date("2024-01-02"))
+  expect_equal(target$target_source_lag, 0)
+  expect_equal(target$target_value_source, "carried_forward")
+
+  raw$value[] <- NA_real_
+  expect_identical(
+    create_target_lookup(raw, "value", "ref_date", "lag", 1),
+    data.frame(
+      reference_date = as.Date(character()),
+      target_date = as.Date(character()),
+      target_lag = numeric(),
+      target_source_lag = numeric(),
+      target_value_source = character()
+    )
+  )
+})
+
+test_that("preprocessing excludes empty count episodes and labels missing updates false", {
+  raw <- data.frame(
+    ref_date = rep(as.Date(c("2024-01-01", "2024-01-02")), each = 3),
+    lag = rep(0:2, 2),
+    value = c(10, NA, 10, NA, NA, NA)
+  )
+  result <- data_preprocessing(
+    raw, "value", "ref_date", "lag", ref_lag = 3,
+    lagged_term_list = c(1, 7), smoothed = TRUE,
+    target_as_of_date = as.Date("2024-01-04")
+  )
+
+  expect_setequal(unique(result$reference_date), as.Date("2024-01-01"))
+  expect_equal(result$genuine_event[match(0:2, result$lag)], c(TRUE, FALSE, TRUE))
+  expect_true(all(result$value_target == 10))
+  expect_true(all(result$target_source_lag == 2))
+})
+
+test_that("fraction observations require both numerator and denominator", {
+  raw <- data.frame(
+    ref_date = rep(as.Date(c("2024-01-01", "2024-01-02")), each = 3),
+    lag = rep(0:2, 2),
+    numerator = c(1, 2, 2, 1, 2, 3),
+    denominator = c(10, NA, 20, NA, NA, NA)
+  )
+  result <- data_preprocessing(
+    raw, c("numerator", "denominator"), "ref_date", "lag", ref_lag = 3,
+    suffixes = c("_num", "_denom"), lagged_term_list = c(1, 7),
+    value_type = "fraction", smoothed = TRUE,
+    target_as_of_date = as.Date("2024-01-04")
+  )
+
+  expect_setequal(unique(result$reference_date), as.Date("2024-01-01"))
+  expect_equal(result$genuine_event[match(0:2, result$lag)], c(TRUE, FALSE, TRUE))
+  expect_true(all(result$target_source_lag == 2))
+  expect_equal(unique(result$value_target_num), 2)
+  expect_equal(unique(result$value_target_denom), 20)
+  expect_equal(unique(result$value_target), 3 / 21)
 })
 
 test_that("weekly raw targets retain Friday and keep day-based lags", {
@@ -299,18 +385,19 @@ test_that("weekly raw targets retain Friday and keep day-based lags", {
     value = c(10, 14)
   )
   target <- create_target_lookup(
-    raw, "value", "ref_date", "lag", 63, 0, 0, "weekly"
+    raw, "value", "ref_date", "lag", 63, temporal_resol = "weekly"
   )
   expect_equal(target$target_lag, 63)
   expect_equal(target$target_date, as.Date("2024-03-09"))
-  expect_equal(target$target_type, "revision")
+  expect_equal(target$target_source_lag, 63)
+  expect_equal(target$target_value_source, "exact_release")
 })
 
-test_that("create_target_lookup returns a typed empty frame when all lags exceed ref_lag", {
+test_that("create_target_lookup dates targets even when no source lag is eligible", {
   # Simulate bulk-loaded historical data: every reference_date has only one
   # observation with lag >> ref_lag (e.g. loaded months after the fact).
-  # Before the fix, dplyr::bind_rows(NULL, NULL, ...) returned a 0x0 tibble,
-  # causing attach_target_lookup to fail with "reference_date not in y".
+  # The requested maturity date remains authoritative even when there was no
+  # raw report at or before that lag. Source audit metadata is unavailable.
   raw <- data.frame(
     ref_date = as.Date(c("2020-01-01", "2020-01-02", "2020-01-03")),
     lag = c(250, 249, 248),  # all >> ref_lag=60; no fallback <= 60 exists
@@ -318,11 +405,15 @@ test_that("create_target_lookup returns a typed empty frame when all lags exceed
   )
   result <- create_target_lookup(raw, "value", "ref_date", "lag", 60)
   expect_s3_class(result, "data.frame")
-  expect_equal(nrow(result), 0L)
+  expect_equal(nrow(result), 3L)
   expect_true("reference_date" %in% colnames(result))
   expect_true("target_date"    %in% colnames(result))
   expect_true("target_lag"     %in% colnames(result))
-  expect_true("target_type"    %in% colnames(result))
+  expect_true("target_source_lag" %in% colnames(result))
+  expect_true("target_value_source" %in% colnames(result))
+  expect_true(all(result$target_lag == 60))
+  expect_true(all(is.na(result$target_source_lag)))
+  expect_true(all(is.na(result$target_value_source)))
 })
 
 test_that("data_preprocessing attaches raw-aware target after filling", {
@@ -333,12 +424,31 @@ test_that("data_preprocessing attaches raw-aware target after filling", {
   )
   result <- data_preprocessing(
     raw, "value", "ref_date", "lag", 60,
-    lagged_term_list = c(1, 7), temporal_resol = "daily", smoothed = TRUE,
-    target_lag_lower_tolerance = 1, target_lag_upper_tolerance = 2
+    lagged_term_list = c(1, 7), temporal_resol = "daily", smoothed = TRUE
   )
-  expect_true(all(result$target_lag == 62))
-  expect_true(all(result$target_type == "revision"))
-  expect_true(all(result$value_target == 15))
+  expect_true(all(result$target_lag == 60))
+  expect_true(all(result$target_source_lag == 59))
+  expect_true(all(result$target_value_source == "carried_forward"))
+  expect_true(all(result$value_target == 10))
+})
+
+test_that("an explicit as_of_date carries a quiet episode through target maturity", {
+  raw <- data.frame(
+    ref_date = rep(as.Date("2024-01-01"), 2),
+    lag = c(2, 5),
+    value = c(10, 12)
+  )
+  result <- data_preprocessing(
+    raw, "value", "ref_date", "lag", 7,
+    lagged_term_list = c(1, 7), temporal_resol = "daily", smoothed = TRUE,
+    target_as_of_date = as.Date("2024-01-10")
+  )
+
+  expect_true(all(result$target_lag == 7))
+  expect_true(all(result$target_date == as.Date("2024-01-08")))
+  expect_true(all(result$target_source_lag == 5))
+  expect_true(all(result$target_value_source == "carried_forward"))
+  expect_true(all(result$value_target == 12))
 })
 
 test_that("data_preprocessing uses denominator-only revisions for fraction targets", {
@@ -352,14 +462,14 @@ test_that("data_preprocessing uses denominator-only revisions for fraction targe
   result <- data_preprocessing(
     raw, c("numerator", "denominator"), "ref_date", "lag", 60,
     suffixes = c("_num", "_denom"), lagged_term_list = c(1, 7),
-    value_type = "fraction", temporal_resol = "daily", smoothed = TRUE,
-    target_lag_lower_tolerance = 1, target_lag_upper_tolerance = 2
+    value_type = "fraction", temporal_resol = "daily", smoothed = TRUE
   )
 
-  expect_true(all(result$target_lag == 61))
-  expect_true(all(result$target_date == as.Date("2024-03-02")))
-  expect_true(all(result$target_type == "revision"))
-  expect_equal(unique(result$log_value_target), log(11) - log(201))
+  expect_true(all(result$target_lag == 60))
+  expect_true(all(result$target_date == as.Date("2024-03-01")))
+  expect_true(all(result$target_source_lag == 59))
+  expect_true(all(result$target_value_source == "carried_forward"))
+  expect_equal(unique(result$log_value_target), log(11) - log(101))
 })
 
 
@@ -466,10 +576,10 @@ test_that("data_preprocessing handles multiple value columns correctly", {
                        refd_col = "ref_date", lag_col = "lag", ref_lag = 7, value_type = "fraction"),
     "Insufficient suffixes provided for numerator and denominator; default suffixes '_num' and '_denom' will be used."
   )
-  expect_warning(
+  # One column with value_type = "fraction" is a directly supplied rate.
+  expect_no_warning(
     data_preprocessing(df, value_col = c("cases"), refd_col = "ref_date",
-                       lag_col = "lag", ref_lag = 7, value_type = "fraction"),
-    "Only one value column provided; it will be treated as a fraction."
+                       lag_col = "lag", ref_lag = 7, value_type = "fraction")
   )
   expect_warning(
     data_preprocessing(df, value_col = c("cases", "deaths"), refd_col = "ref_date",
@@ -529,12 +639,14 @@ test_that("Testing add weighted related features", {
     lag = c(2, 2)
   )
 
+  anchors <- create_weight_anchors(test_df, as.Date("2024-12-26"))
+
   # Function runs without errors
-  expect_silent(result <- add_weights_related(test_df))
+  expect_silent(result <- add_weights_related(test_df, anchors))
 
   # Missing required columns throws error
-  incomplete_df <- test_df %>% select(-value_7dav)
-  expect_error(add_weights_related(incomplete_df),
+  incomplete_df <- test_df %>% select(-log_value_7dav_lag7)
+  expect_error(add_weights_related(incomplete_df, anchors),
                "Missing required columns when adding weighted related features")
 
   # Check that correct columns are present in output
@@ -563,4 +675,167 @@ test_that("data_preprocessing labels genuine events before forward filling", {
   expect_type(result$genuine_event, "logical")
   expect_equal(result$lag, 0:3)
   expect_equal(result$genuine_event, c(TRUE, FALSE, TRUE, TRUE))
+})
+
+test_that("add_lagged_terms measures revisions from an explicit start lag", {
+  df <- expand.grid(ref_date = as.Date("2022-01-01") + 0:20, lag = 0:5)
+  df$value <- ifelse(df$lag == 0, 0, 10 * as.numeric(df$ref_date - as.Date("2022-01-01")) + df$lag)
+  from_grid <- add_lagged_terms(df, "value", "ref_date", "lag", 1, "daily")
+  from_first_report <- add_lagged_terms(df, "value", "ref_date", "lag", 1, "daily", start_lag = 1)
+  row <- from_first_report[from_first_report$ref_date == as.Date("2022-01-10") &
+                             from_first_report$lag == 3, ]
+  # Reference date 01-09 at lag 4 (same report date), measured from its lag-1 report.
+  expect_equal(row$value_start_lag1, 10 * 8 + 1)
+  expect_equal(row$log_delta_value_lag1, log(10 * 8 + 4 + 1) - log(10 * 8 + 1 + 1))
+  # Without the start lag the lag-0 zero is the reference, as before.
+  old <- from_grid[from_grid$ref_date == as.Date("2022-01-10") & from_grid$lag == 3, ]
+  expect_equal(old$value_start_lag1, 0)
+})
+
+test_that("data_preprocessing measures revision magnitude from the first report (l_min)", {
+  refs <- as.Date("2022-01-01") + 0:59
+  raw <- do.call(rbind, lapply(seq_along(refs), function(k) {
+    data.frame(reference_date = refs[k], lag = 1:20,       # first released at lag 1
+               value = 100 + k + 3 * pmin(1:20, 8))
+  }))
+  out <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                            lag_col = "lag", ref_lag = 14, lagged_term_list = c(1, 7),
+                            value_type = "count", temporal_resol = "daily", smoothed = TRUE)
+  row <- out[out$reference_date == as.Date("2022-02-15") & out$lag == 3, ]
+  # Reference date 02-08 (k = 39) at lag 10, measured from its lag-1 report.
+  expect_equal(row$value_7dav_start_lag7, 100 + 39 + 3)
+  expect_equal(row$log_delta_value_7dav_lag7, log(100 + 39 + 24 + 1) - log(100 + 39 + 3 + 1))
+  # It is no longer a copy of the level feature.
+  expect_false(isTRUE(all.equal(out$log_delta_value_7dav_lag7, out$log_value_7dav_lag7)))
+  # An explicit start lag is honoured.
+  explicit <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                                 lag_col = "lag", ref_lag = 14, lagged_term_list = c(1, 7),
+                                 value_type = "count", temporal_resol = "daily", smoothed = TRUE,
+                                 revision_start_lag = 0)
+  expect_true(all(explicit$value_7dav_start_lag7[!is.na(explicit$value_7dav_start_lag7)] == 0))
+})
+
+test_that("revision magnitudes use each episode's own first genuine report", {
+  refs <- as.Date("2022-01-01") + 0:59
+  raw <- do.call(rbind, lapply(seq_along(refs), function(k) {
+    first_lag <- if (k %% 2L) 1L else 4L
+    lags <- first_lag:20L
+    data.frame(reference_date = refs[k], lag = lags,
+               value = 100 + k + 3 * pmin(lags - first_lag, 8L))
+  }))
+  out <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                            lag_col = "lag", ref_lag = 14,
+                            lagged_term_list = c(1, 7), value_type = "count",
+                            temporal_resol = "daily", smoothed = TRUE)
+
+  # The lag-7 source episode for this row starts at lag 4. Its baseline must be
+  # that genuine lag-4 value, not the grid-filled zero at the global minimum 1.
+  row <- out[out$reference_date == refs[20] & out$lag == 8, ]
+  source_k <- 13L
+  expected_start <- 100 + source_k
+  expect_equal(row$value_7dav_start_lag7, expected_start)
+  expect_equal(row$log_delta_value_7dav_lag7,
+               log(row$value_7dav_lag7 + 1) - log(expected_start + 1))
+  expect_lt(row$log_delta_value_7dav_lag7, 1)
+})
+
+test_that("episode-specific revision starts support a mixture of lag zero and later starts", {
+  refs <- as.Date("2023-01-01") + 0:39
+  raw <- do.call(rbind, lapply(seq_along(refs), function(k) {
+    first_lag <- if (k %% 2L) 0L else 3L
+    lags <- first_lag:14L
+    data.frame(reference_date = refs[k], lag = lags,
+               value = 1000 + 100 * k + 2 * (lags - first_lag))
+  }))
+  out <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                            lag_col = "lag", ref_lag = 14,
+                            lagged_term_list = c(1, 7), value_type = "count",
+                            temporal_resol = "daily", smoothed = TRUE)
+
+  # The lag-1 source episode is reference date k=19, whose first report is lag 0.
+  row <- out[out$reference_date == refs[20] & out$lag == 5, ]
+  expected_start <- 1000 + 100 * 19
+  expect_equal(row$value_7dav_start_lag1, expected_start)
+  expect_equal(row$log_delta_value_7dav_lag1,
+               log(row$value_7dav_lag1 + 1) - log(expected_start + 1))
+
+  # The next source episode is k=20, whose first genuine report is lag 3.
+  later_row <- out[out$reference_date == refs[21] & out$lag == 5, ]
+  expect_equal(later_row$value_7dav_start_lag1, 1000 + 100 * 20)
+})
+
+test_that("weekly revision magnitudes use each episode's normalized first report", {
+  refs <- as.Date("2023-01-07") + 7 * (0:29)
+  raw <- do.call(rbind, lapply(seq_along(refs), function(k) {
+    first_lag <- if (k %% 2L) 0L else 7L
+    lags <- seq(first_lag, 35L, by = 7L)
+    data.frame(reference_date = refs[k], lag = lags,
+               value = 2000 + 100 * k + 3 * ((lags - first_lag) / 7))
+  }))
+  out <- data_preprocessing(raw, value_col = "value", refd_col = "reference_date",
+                            lag_col = "lag", ref_lag = 28,
+                            lagged_term_list = c(7, 14), value_type = "count",
+                            temporal_resol = "weekly", smoothed = TRUE)
+
+  # The lag-7 source episode is reference date k=19, whose first report is lag 0.
+  row <- out[out$reference_date == refs[20] & out$lag == 14, ]
+  expected_start <- 2000 + 100 * 19
+  expect_equal(row$value_7dav_start_lag7, expected_start)
+  expect_equal(row$log_delta_value_7dav_lag7,
+               log(row$value_7dav_lag7 + 1) - log(expected_start + 1))
+
+  # The next source episode begins at lag 7 rather than the dataset minimum 0.
+  later_row <- out[out$reference_date == refs[21] & out$lag == 14, ]
+  expect_equal(later_row$value_7dav_start_lag7, 2000 + 100 * 20)
+})
+
+test_that("fraction revision magnitudes share the episode-specific start", {
+  refs <- as.Date("2023-01-01") + 0:39
+  raw <- do.call(rbind, lapply(seq_along(refs), function(k) {
+    first_lag <- if (k %% 2L) 0L else 3L
+    lags <- first_lag:14L
+    data.frame(reference_date = refs[k], lag = lags,
+               numerator = 1000 + 100 * k + 2 * (lags - first_lag),
+               denominator = 10000 + 50 * k + lags)
+  }))
+  out <- data_preprocessing(
+    raw, value_col = c("numerator", "denominator"),
+    refd_col = "reference_date", lag_col = "lag", ref_lag = 14,
+    suffixes = c("_num", "_den"), lagged_term_list = c(1, 7),
+    value_type = "fraction", temporal_resol = "daily", smoothed = TRUE
+  )
+
+  row <- out[out$reference_date == refs[20] & out$lag == 5, ]
+  expect_equal(row$value_7dav_start_lag1_num, 1000 + 100 * 19)
+  expect_equal(row$value_7dav_start_lag1_den, 10000 + 50 * 19)
+  expect_equal(row$log_delta_value_7dav_lag1,
+               row$log_delta_value_7dav_lag1_num -
+                 row$log_delta_value_7dav_lag1_den)
+})
+
+test_that("lag terms are validated before any work", {
+  raw <- data.frame(ref = rep(as.Date("2024-01-06") + 7 * (0:5), each = 3),
+                    lag = rep(c(0, 7, 14), 6), value = 1:18)
+  expect_error(data_preprocessing(raw, "value", "ref", "lag", 28, temporal_resol = "weekly",
+                                  smoothed = TRUE, lagged_term_list = c(1, 7)),
+               "multiples of 7")
+  expect_error(data_preprocessing(raw, "value", "ref", "lag", 28, temporal_resol = "daily",
+                                  lagged_term_list = c(0.5, 7)),
+               "positive whole numbers")
+  expect_error(add_lagged_terms(raw, "value", "ref", "lag", lagged_term_list = -1,
+                                temporal_resol = "daily"),
+               "positive whole numbers")
+})
+
+test_that("a weekly target lag that is not whole weeks raises an alarm", {
+  raw <- expand.grid(ref = as.Date("2024-01-06") + 7 * (0:20), k = 0:10)
+  raw$lag <- raw$k * 7
+  raw$value <- 100 + raw$k
+  expect_warning(
+    data_preprocessing(raw[c("ref", "lag", "value")], "value", "ref", "lag", 30,
+                       temporal_resol = "weekly", smoothed = TRUE),
+    "30 days is not a whole number of weeks")
+  expect_no_warning(
+    data_preprocessing(raw[c("ref", "lag", "value")], "value", "ref", "lag", 28,
+                       temporal_resol = "weekly", smoothed = TRUE))
 })

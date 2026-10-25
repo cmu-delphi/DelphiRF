@@ -18,7 +18,8 @@ cv_revision_forecast(
   lp_solver = LP_SOLVER,
   geo = "ma",
   value_type = "count",
-  model_save_dir = default_model_save_dir(),
+  working_scale,
+  model_save_dir = NULL,
   indicator = "testdata",
   signal = "",
   geo_level = "state",
@@ -33,17 +34,25 @@ cv_revision_forecast(
 )
 }
 \arguments{
-\item{df}{Data frame containing the input data.}
+\item{df}{Data frame containing the input data, with the weighting features
+added by \code{\link[=add_weights_related]{add_weights_related()}} (anchors from \code{\link[=create_weight_anchors]{create_weight_anchors()}}
+at \code{training_end_date}).}
 
 \item{test_lag}{Numeric vector specifying the test lag(s).}
 
-\item{taus}{Numeric vector of quantiles to estimate.}
+\item{taus}{Numeric vector of quantiles to estimate. Duplicate levels are
+removed while preserving first-occurrence order.}
 
-\item{smoothed_target}{A logical value indicating whether the target variable should be smoothed.}
+\item{smoothed_target}{Logical; use the seven-day-average target response
+when \code{TRUE}, or the unsmoothed target response when \code{FALSE}.}
 
-\item{lagged_term_list}{Optional list of lagged terms to be included in the model.}
+\item{lagged_term_list}{Optional numeric vector of positive lag values, in
+days, to include in the model.}
 
-\item{params_list}{Optional list of additional parameters for the model.}
+\item{params_list}{Optional character vector naming predictor columns. These
+columns form the model design matrix and, when supplied, replace automatic
+predictor selection. When \code{NULL}, the vector is built by
+\code{\link[=create_params_list]{create_params_list()}}.}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
 
@@ -51,30 +60,46 @@ cv_revision_forecast(
 
 \item{gamma_candidates}{Numeric vector of gamma values to try.}
 
-\item{lag_pad_candidates}{Numeric vector of lag padding values to try.}
+\item{lag_pad_candidates}{Numeric vector of lag padding values to try. For a
+test lag range \verb{[a, b]} and candidate \code{p}, training uses lags from \code{a - p}
+through \code{b + p}, while validation remains restricted to \verb{[a, b]}.}
 
-\item{lp_solver}{Value supplied for \code{lp_solver}.}
+\item{lp_solver}{Linear-programming solver for the optional \code{quantgen}
+backend, \code{"gurobi"} or \code{"glpk"}. Ignored by the default \code{quantreg}
+backend.}
 
-\item{geo}{Value supplied for \code{geo}.}
+\item{geo}{Location label. Used only in the model cache file name.}
 
-\item{value_type}{Value supplied for \code{value_type}.}
+\item{value_type}{\code{"count"} or \code{"fraction"}. In the forecasting
+functions it is used only in the model cache folder name; \code{working_scale}
+sets how predictions are transformed back.}
 
-\item{model_save_dir}{Directory for model cache files. On R 4.0 and later,
-models are stored by default in DelphiRF's platform-specific user cache
-directory, as returned by \code{tools::R_user_dir("DelphiRF", "cache")}, so they
-can be reused across R sessions. Older R versions use a session temporary
-directory. Supply an explicit path to use a different location.}
+\item{working_scale}{Required; there is no default. The scale the model
+is fitted on, which sets how predictions are returned to the reporting
+scale: \code{"log_value"} when preprocessing received one value column (a count
+or a directly supplied rate), modelled as \code{log(value + 1)}; \code{"log_ratio"}
+when it received numerator and denominator columns, modelled as
+\code{log(numerator + 1) - log(denominator + 1)}.}
 
-\item{indicator}{Value supplied for \code{indicator}.}
+\item{model_save_dir}{Directory for the fold models. \code{NULL} (default) uses
+a temporary directory removed on exit.}
 
-\item{signal}{Value supplied for \code{signal}.}
+\item{indicator}{Indicator label. Used only in the model cache folder name.}
 
-\item{geo_level}{Value supplied for \code{geo_level}.}
+\item{signal}{Signal label. Used only in the model cache folder name.}
 
-\item{signal_suffix}{Value supplied for \code{signal_suffix}.}
+\item{geo_level}{Geographic level label, such as \code{"state"}. Used only
+in the model cache folder name.}
 
-\item{training_end_date}{End date assigned to the training data. High-level
-forecasting functions use the latest input report date when this is empty.}
+\item{signal_suffix}{Optional extra label. Used only in the model cache
+folder name.}
+
+\item{training_end_date}{A single valid date used as the training cutoff.
+When empty, \code{delphirf_nowcast_preprocessed()} uses \code{testing_start_date}, while
+\code{\link[=revision_forecast]{revision_forecast()}} and \code{\link[=cv_revision_forecast]{cv_revision_forecast()}} use the latest input
+report date. \code{delphirf_nowcast_preprocessed()} requires the cutoff not to be later than its
+forecast origin. Lower-level functions have no forecast-origin argument
+and therefore validate the date but cannot apply that ordering check.}
 
 \item{training_days}{Number of days assigned to the training target-date
 window. Functions receiving an unfiltered dataset apply this window;
@@ -95,9 +120,35 @@ model cache filenames.}
 \item{time_limit}{Optional solver time limit passed to the \code{quantgen}
 backend.}
 }
+\value{
+A list with \code{best_lambda}, \code{best_gamma} and \code{best_lag_pad}, the
+combination with the lowest mean WIS across folds (all three \code{NULL} when
+no combination could be scored), and \code{scores}, a data frame with one row
+per candidate: \code{lambda}, \code{gamma}, \code{lag_pad} and \code{mean_wis_working}
+(\code{NA} when the candidate could not be scored).
+}
 \description{
 This function performs cross-validation to optimize WIS for forecast revision.
 It trains forecast models for a given geographical location and a lag set.
 It evaluates different combinations of lambda, gamma, and lag padding values
 across multiple folds.
+}
+\details{
+The function first keeps rows inside the training window: \code{report_date} on
+or before \code{training_end_date}, and \code{target_date} in
+(\code{training_end_date - training_days}, \code{training_end_date}]. Rows are then
+eligible validation rows are then restricted to the exact \code{test_lag} range
+and, when requested, to genuine events. After deterministic date/lag sorting,
+those rows are assigned to folds in turn (row 1 to fold 1, row 2 to fold 2,
+and so on). Training retains the full date-filtered data so \code{lag_pad} can add
+neighbouring lags. The folds are not ordered in time: a validation fold can
+lie between training rows. The function is intended for hyperparameter
+tuning within one training window, not for prospective evaluation.
+Candidates are compared by mean \code{wis_working}, the WIS on the working (log)
+scale. If fewer validation rows than requested folds are available, the
+number of folds is reduced to the number of eligible rows with a warning.
+
+Fold models are tuning by-products: unless \code{model_save_dir} is given, they
+are written to a temporary directory that is removed when the function
+returns, so tuning never touches the shared model cache.
 }
