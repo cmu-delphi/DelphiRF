@@ -4,7 +4,12 @@
 \alias{create_params_list}
 \title{Create Parameters List}
 \usage{
-create_params_list(train_data, lagged_term_list, temporal_resol)
+create_params_list(
+  train_data,
+  lagged_term_list,
+  temporal_resol,
+  extra_params = NULL
+)
 }
 \arguments{
 \item{train_data}{Data frame containing training data, including lag values.}
@@ -12,6 +17,9 @@ create_params_list(train_data, lagged_term_list, temporal_resol)
 \item{lagged_term_list}{Numeric vector specifying the list of lags to be considered.}
 
 \item{temporal_resol}{Character; either "daily" or "weekly" resolution.}
+
+\item{extra_params}{Optional character vector of additional predictor
+columns, e.g. from \code{\link[=aux_feature_names]{aux_feature_names()}}.}
 }
 \description{
 This function generates a list of parameter names based on the provided training data and lag list.

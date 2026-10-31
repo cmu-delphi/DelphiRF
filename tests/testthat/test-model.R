@@ -421,6 +421,30 @@ test_that("testing data_filteration", {
 
 })
 
+test_that("quantreg and quantgen backends produce similar predictions", {
+  skip_if_not_installed("quantgen")
+
+  set.seed(7)
+  nn <- 300
+  pp <- 6
+  beta_true <- c(1, -1, 0.5, rep(0, pp - 3))
+  xx <- matrix(rnorm(nn * pp), nrow = nn)
+  yy <- as.numeric(xx %*% beta_true + rt(nn, df = 4))
+
+  xx_test <- matrix(rnorm(50 * pp), nrow = 50)
+  taus_test <- c(0.1, 0.5, 0.9)
+
+  fit_qr <- fit_quantreg_lasso(xx, yy, taus = taus_test, lambda = 0.05)
+  fit_qg <- quantgen::quantile_lasso(xx, yy, tau = taus_test, lambda = 0.05,
+                                     standardize = TRUE, intercept = TRUE, lp_solver = "glpk")
+
+  pred_qr <- predict(fit_qr, newx = xx_test)
+  pred_qg <- predict(fit_qg, newx = xx_test)
+
+  expect_gt(cor(as.vector(pred_qr), as.vector(pred_qg)), 0.99)
+  expect_lt(max(abs(pred_qr - pred_qg)), 0.5)
+})
+
 test_that("revision_forecast with train_models=FALSE loads cached model and produces identical predictions", {
   tmpdir <- tempfile()
   dir.create(tmpdir)

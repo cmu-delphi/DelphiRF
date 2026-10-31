@@ -12,6 +12,7 @@ DelphiRF(
   smoothed_target = TRUE,
   lagged_term_list = NULL,
   params_list = NULL,
+  extra_params = NULL,
   lambda = LAMBDA,
   gamma = GAMMA,
   lag_pad = LAG_PAD,
@@ -49,6 +50,9 @@ daily or weekly defaults are selected from \code{temporal_resol}.}
 \item{lagged_term_list}{A list of lagged terms to be used as predictors.}
 
 \item{params_list}{A list of model parameters for forecasting.}
+
+\item{extra_params}{Optional character vector of additional predictor columns
+passed to \code{\link[=revision_forecast]{revision_forecast()}}.}
 
 \item{lambda}{Value supplied for \code{lambda}.}
 

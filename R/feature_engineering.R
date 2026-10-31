@@ -402,6 +402,75 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
   return(as.data.frame(df))
 }
 
+
+#' Process an auxiliary reporting triangle into prefixed feature columns
+#'
+#' Runs a single auxiliary data frame (one geo, one signal) through the
+#' fill → 7-day-average → lagged-terms → log-transform pipeline and
+#' renames all value-derived columns with a `{name}_` prefix so they can
+#' be safely joined to the primary preprocessed data frame.
+#'
+#' @param df Data frame with columns `reference_date`, `report_date`, `lag`,
+#'   and `value` (the signal values).
+#' @param name Character scalar used as the column prefix (e.g. `"nssp"`).
+#' @param lagged_term_list Numeric vector of lag values (same as used for the
+#'   primary signal).
+#' @param temporal_resol `"daily"` or `"weekly"`.
+#' @param smoothed Logical; if `FALSE` and `temporal_resol == "daily"`, a 7-day
+#'   moving average is computed. Otherwise `value_7dav` is set equal to
+#'   `value_raw`.
+#'
+#' @return Data frame with columns `reference_date`, `report_date`, `lag`, and
+#'   all value/log columns prefixed with `{name}_`.  Useful predictors are
+#'   `{name}_log_value_7dav_lag{N}` and `{name}_log_delta_value_7dav_lag{N}`;
+#'   see [aux_feature_names()].
+process_aux_triangle <- function(df, name, lagged_term_list, temporal_resol, smoothed,
+                                max_report_override = NULL) {
+  filled_df <- fill_missing_updates(df, "value", "reference_date", "lag", temporal_resol,
+                                    max_report_override = max_report_override)
+  if (nrow(filled_df) == 0) {
+    expected_cols <- c("reference_date", "report_date", "lag",
+                       aux_feature_names(name, lagged_term_list))
+    return(setNames(data.frame(matrix(ncol = length(expected_cols), nrow = 0)),
+                    expected_cols))
+  }
+  if (!smoothed && temporal_resol == "daily") {
+    filled_df <- add_7davs(filled_df, "value_raw", "reference_date", "lag")
+  } else {
+    filled_df$value_7dav <- filled_df$value_raw
+  }
+  filled_df <- add_lagged_terms(
+    filled_df, "value_7dav", "reference_date", "lag", lagged_term_list, temporal_resol
+  )
+  filled_df <- add_log_transformed(filled_df, lagged_term_list)
+
+  value_cols <- grep("^(value_|log_)", colnames(filled_df), value = TRUE)
+  colnames(filled_df)[colnames(filled_df) %in% value_cols] <- paste0(name, "_", value_cols)
+
+  filled_df[, c("reference_date", "report_date", "lag", paste0(name, "_", value_cols))]
+}
+
+
+#' Return the feature column names produced by an auxiliary triangle
+#'
+#' Gives the column names that [process_aux_triangle()] adds for a given
+#' auxiliary signal, matching the log-value and log-delta features used by
+#' the primary signal in [create_params_list()].
+#'
+#' @param name Character scalar; the aux triangle name (must match what was
+#'   passed to [data_preprocessing()]).
+#' @param lagged_term_list Numeric vector of lag values.
+#'
+#' @return Character vector of feature column names.
+#' @export
+aux_feature_names <- function(name, lagged_term_list) {
+  c(
+    paste0(name, "_log_value_7dav_lag", lagged_term_list),
+    paste0(name, "_log_delta_value_7dav_lag", lagged_term_list)
+  )
+}
+
+
 #' Data Preprocessing Function
 #'
 #' This function processes input data by handling missing values, computing lagged terms,
@@ -425,6 +494,13 @@ add_params_for_dates <- function(df, refd_col, lag_col, temporal_resol = "daily"
 #'   search for genuine target revisions.
 #' @param target_lag_upper_tolerance Non-negative days after `ref_lag` to
 #'   search for genuine target revisions.
+#' @param aux_triangles Named list of auxiliary reporting-triangle data frames.
+#'   Each element must have columns `reference_date`, `report_date`, `lag`, and
+#'   `value` (already filtered to the same single geo as `df`).  Each is run
+#'   through the same fill → lag → log pipeline as the primary signal and
+#'   joined to the result; columns are prefixed with the list element name.
+#'   Use [aux_feature_names()] to obtain the resulting predictor column names
+#'   for [create_params_list()].
 #' @param target_as_of_date Optional date limiting target construction to
 #'   reports available on or before that date.
 #' @details The returned data includes a logical `genuine_event` column.
@@ -450,6 +526,7 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
                                temporal_resol="daily", smoothed=FALSE,
                                target_lag_lower_tolerance = 0,
                                target_lag_upper_tolerance = 0,
+                               aux_triangles = NULL,
                                target_as_of_date = NULL) {
   if (value_type == "count") {
     if (length(value_col) > 1) warning("Multiple value column names provided; only the first one will be used.")
@@ -544,6 +621,25 @@ data_preprocessing <- function(df, value_col, refd_col, lag_col, ref_lag,
   )
   merged_df$genuine_event <- !is.na(merged_df$genuine_event) &
     merged_df$genuine_event
+
+  if (!is.null(aux_triangles)) {
+    primary_max_report <- max(merged_df$report_date)
+    for (nm in names(aux_triangles)) {
+      aux_processed <- process_aux_triangle(
+        aux_triangles[[nm]], nm, lagged_term_list, temporal_resol, smoothed,
+        max_report_override = primary_max_report
+      )
+      if (nrow(aux_processed) == 0L) {
+        merged_df <- merged_df[0L, ]
+        break
+      }
+      merged_df <- dplyr::left_join(
+        merged_df, aux_processed,
+        by = c("reference_date", "report_date", "lag")
+      )
+      merged_df <- merged_df[!is.na(merged_df[[paste0(nm, "_value_raw")]]), ]
+    }
+  }
 
   merged_df <- merged_df %>%
     filter(.data$lag < ref_lag)

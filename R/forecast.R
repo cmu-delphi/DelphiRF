@@ -10,6 +10,8 @@
 #' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
 #' @param taus A numeric vector specifying the quantiles for prediction intervals.
 #' @param params_list A list of model parameters used for training and prediction.
+#' @param extra_params Optional character vector of additional predictor columns
+#'   appended to the default parameter list, e.g. from [aux_feature_names()].
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
 #' @param temporal_resol Character; either `"daily"` or `"weekly"` resolution.
@@ -46,6 +48,7 @@ revision_forecast <- function(train_data, test_data, taus,
                               smoothed_target=TRUE,
                               lagged_term_list=NULL,
                               params_list=NULL,
+                              extra_params=NULL,
                               temporal_resol="daily",
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
@@ -61,8 +64,6 @@ revision_forecast <- function(train_data, test_data, taus,
                               time_limit = NULL) {
 
   model_backend <- match.arg(model_backend)
-
-
 
   if (nrow(train_data) < 10) {
     stop("Not enough data to train.")
@@ -86,7 +87,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, extra_params)
   }
 
   if (smoothed_target) {
@@ -405,6 +406,8 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #' @param taus A numeric vector of quantiles for probabilistic forecasting.
 #' @param lagged_term_list A list of lagged terms to be used as predictors.
 #' @param params_list A list of model parameters for forecasting.
+#' @param extra_params Optional character vector of additional predictor columns
+#'   passed to [revision_forecast()].
 #' @param test_lag_groups A vector of test lag groups to process. When `NULL`,
 #'   daily or weekly defaults are selected from `temporal_resol`.
 #' @param lag_pad A numeric or named list of lag padding values (default: `LAG_PAD`).
@@ -437,6 +440,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
                      params_list=NULL,
+                     extra_params=NULL,
                      lambda=LAMBDA, gamma=GAMMA, lag_pad=LAG_PAD,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
@@ -528,6 +532,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       train_data = train_data, test_data = test_data, taus = taus,
       smoothed_target = smoothed_target,
       lagged_term_list = lagged_term_list, params_list = params_list,
+      extra_params = extra_params,
       temporal_resol = temporal_resol,
       lambda = l, gamma = g, lp_solver = lp_solver,
       test_lag_group = test_lag_group, geo = geo, value_type = value_type,
