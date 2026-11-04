@@ -98,6 +98,63 @@ test_that("DelphiRF genuine-event switches independently filter training and tes
   expect_equal(unique(all_rows$n_training_rows), 20L)
 })
 
+test_that("genuine_training fallback trains a lag group without genuine rows on all rows", {
+  cutoff <- as.Date("2024-02-01")
+  n_train <- 20L
+  df <- data.frame(
+    reference_date = seq(cutoff - n_train, by = "day", length.out = n_train + 1L),
+    report_date = c(seq(cutoff - n_train, cutoff - 1L, by = "day"), cutoff),
+    target_date = rep(cutoff, n_train + 1L),
+    lag = rep(0L, n_train + 1L),
+    genuine_event = c(rep(FALSE, n_train), TRUE),
+    value_7dav = seq_len(n_train + 1L),
+    value_7dav_lag7 = seq_len(n_train + 1L),
+    log_value_7dav = log1p(seq_len(n_train + 1L)),
+    log_value_7dav_lag7 = log1p(seq_len(n_train + 1L))
+  )
+
+  local_mocked_bindings(
+    revision_forecast = function(train_data, test_data, ...) {
+      test_data$n_training_rows <- nrow(train_data)
+      test_data$any_training_row_genuine <- any(train_data$genuine_event)
+      test_data
+    },
+    .package = "DelphiRF"
+  )
+  run <- function(genuine_training) {
+    DelphiRF(df, testing_start_date = cutoff, test_lag_groups = 0, lag_pad = 0,
+             training_days = 30, genuine_training = genuine_training)
+  }
+
+  expect_equal(nrow(run(TRUE)), 0L)
+
+  fallback <- run("fallback")
+  expect_equal(nrow(fallback), 1L)
+  expect_equal(fallback$n_training_rows, 20L)
+  expect_false(fallback$any_training_row_genuine)
+
+  # A lag group with some genuine rows is reported, so too few of them still skips it.
+  df$genuine_event[seq_len(5L)] <- TRUE
+  expect_equal(nrow(run("fallback")), 0L)
+})
+
+test_that("only DelphiRF accepts the genuine_training fallback", {
+  df <- data.frame(
+    report_date = as.Date("2024-01-01"),
+    target_date = as.Date("2024-01-02"),
+    lag = 1L,
+    genuine_event = TRUE
+  )
+  expect_error(
+    DelphiRF(df, testing_start_date = as.Date("2024-01-02"), genuine_training = "all"),
+    'genuine_training must be TRUE, FALSE, or "fallback"'
+  )
+  expect_error(
+    cv_revision_forecast(df, test_lag = 1L, genuine_training = "fallback"),
+    "genuine_training must be one non-missing logical value"
+  )
+})
+
 test_that("preprocessing metadata controls high-level training and testing", {
   raw <- do.call(rbind, lapply(
     seq(as.Date("2024-01-01"), as.Date("2024-01-20"), by = "day"),

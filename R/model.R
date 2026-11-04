@@ -237,7 +237,6 @@ exponentiate_preds <- function(
     predictions <- predictions - 1
   }
 
-  # Drop original predictions and join on exponentiated versions
   test_data <- bind_cols(
     select(test_data, -starts_with("predicted")),
     predictions
@@ -322,7 +321,6 @@ get_model <- function(model_path, train_data, covariates, response, tau,
 
     # Save model to cache.
     create_dir_not_exist(dirname(model_path))
-    # add extra infomation
     attr(obj, "sqrt_max_raw") <- sqrt_max_raw
     attr(obj, "kept_bins") <- kept_bins
     attr(obj, "gamma") <- gamma
@@ -557,6 +555,8 @@ generate_filename <- function(indicator, signal,
 #' @param train_data Data frame containing training data, including lag values.
 #' @param lagged_term_list Numeric vector specifying the list of lags to be considered.
 #' @param temporal_resol Character; either "daily" or "weekly" resolution.
+#' @param extra_params Optional character vector of additional predictor
+#'   columns, e.g. from [aux_feature_names()].
 #' @details For daily data, all seven weekday indicators remain in the
 #'   preprocessed data, while the model parameter list omits `Sun_ref` and
 #'   `Sun_issue` to provide identifiable baseline categories.
@@ -565,7 +565,8 @@ generate_filename <- function(indicator, signal,
 #'
 #' @importFrom dplyr mutate select
 #'
-create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
+create_params_list <- function(train_data, lagged_term_list, temporal_resol,
+                               extra_params = NULL) {
   params_list <- c(
     WEEK_ISSUES[1],
     Y7DAV,
@@ -582,5 +583,6 @@ create_params_list <- function(train_data, lagged_term_list, temporal_resol) {
     paste0(modeled_weekdays, "_issue")
   )
 
-  if (temporal_resol == "daily") c(params_list, weekday_params) else params_list
+  base_params <- if (temporal_resol == "daily") c(params_list, weekday_params) else params_list
+  c(base_params, extra_params)
 }

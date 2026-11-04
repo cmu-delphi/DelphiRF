@@ -12,6 +12,7 @@ DelphiRF(
   smoothed_target = TRUE,
   lagged_term_list = NULL,
   params_list = NULL,
+  extra_params = NULL,
   lambda = LAMBDA,
   gamma = GAMMA,
   lag_pad = LAG_PAD,
@@ -49,6 +50,9 @@ daily or weekly defaults are selected from \code{temporal_resol}.}
 \item{lagged_term_list}{A list of lagged terms to be used as predictors.}
 
 \item{params_list}{A list of model parameters for forecasting.}
+
+\item{extra_params}{Optional character vector of additional predictor columns
+passed to \code{\link[=revision_forecast]{revision_forecast()}}.}
 
 \item{lambda}{Value supplied for \code{lambda}.}
 
@@ -90,9 +94,14 @@ model cache filenames.}
 
 \item{make_predictions}{Value supplied for \code{make_predictions}.}
 
-\item{genuine_training}{Logical; if \code{TRUE}, train only on rows whose
-\code{genuine_event} value is \code{TRUE}. These are reports present in the raw
-input, including unchanged repeated reports.}
+\item{genuine_training}{\code{TRUE}, \code{FALSE}, or \code{"fallback"}. If \code{TRUE}, train
+only on rows whose \code{genuine_event} value is \code{TRUE}. These are reports
+present in the raw input, including unchanged repeated reports. If
+\code{FALSE}, train on all rows, including grid-completed ones. If
+\code{"fallback"}, train like \code{TRUE}, except that a test lag group with no
+genuine training rows trains on all rows. Use \code{"fallback"} to predict a
+lag that is never reported, e.g. a placeholder for the current week
+before its first report.}
 
 \item{genuine_testing}{Logical; if \code{TRUE}, predict only rows whose
 \code{genuine_event} value is \code{TRUE}.}

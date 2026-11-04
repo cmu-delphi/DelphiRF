@@ -10,6 +10,8 @@
 #' @param smoothed_target A logical value indicating whether the target variable should be smoothed.
 #' @param taus A numeric vector specifying the quantiles for prediction intervals.
 #' @param params_list A list of model parameters used for training and prediction.
+#' @param extra_params Optional character vector of additional predictor columns
+#'   appended to the default parameter list, e.g. from [aux_feature_names()].
 #' @param lagged_term_list A numeric vector specifying the lag values for which reported
 #'                 values on the reference date are considered in model training.
 #' @param temporal_resol Character; either `"daily"` or `"weekly"` resolution.
@@ -46,6 +48,7 @@ revision_forecast <- function(train_data, test_data, taus,
                               smoothed_target=TRUE,
                               lagged_term_list=NULL,
                               params_list=NULL,
+                              extra_params=NULL,
                               temporal_resol="daily",
                               lambda = 0.1, gamma = 0.1,
                               lp_solver=LP_SOLVER, test_lag_group="",
@@ -61,8 +64,6 @@ revision_forecast <- function(train_data, test_data, taus,
                               time_limit = NULL) {
 
   model_backend <- match.arg(model_backend)
-
-
 
   if (nrow(train_data) < 10) {
     stop("Not enough data to train.")
@@ -86,7 +87,7 @@ revision_forecast <- function(train_data, test_data, taus,
   }
 
   if (is.null(params_list)) {
-    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol)
+    params_list <- create_params_list(train_data, lagged_term_list, temporal_resol, extra_params)
   }
 
   if (smoothed_target) {
@@ -208,10 +209,17 @@ revision_forecast <- function(train_data, test_data, taus,
 }
 
 validate_genuine_event_options <- function(df, genuine_training,
-                                           genuine_testing) {
-  if (!is.logical(genuine_training) || length(genuine_training) != 1L ||
-      is.na(genuine_training)) {
-    stop("genuine_training must be one non-missing logical value.")
+                                           genuine_testing,
+                                           allow_training_fallback = FALSE) {
+  if (allow_training_fallback && identical(genuine_training, "fallback")) {
+    genuine_training <- TRUE
+  } else if (!is.logical(genuine_training) || length(genuine_training) != 1L ||
+             is.na(genuine_training)) {
+    stop(if (allow_training_fallback) {
+      'genuine_training must be TRUE, FALSE, or "fallback".'
+    } else {
+      "genuine_training must be one non-missing logical value."
+    })
   }
   if (!is.logical(genuine_testing) || length(genuine_testing) != 1L ||
       is.na(genuine_testing)) {
@@ -392,9 +400,14 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #'
 #' @param df A data frame containing historical data with `target_date` and `report_date` columns.
 #' @param testing_start_date A character or Date object specifying the start date for testing.
-#' @param genuine_training Logical; if `TRUE`, train only on rows whose
-#'   `genuine_event` value is `TRUE`. These are reports present in the raw
-#'   input, including unchanged repeated reports.
+#' @param genuine_training `TRUE`, `FALSE`, or `"fallback"`. If `TRUE`, train
+#'   only on rows whose `genuine_event` value is `TRUE`. These are reports
+#'   present in the raw input, including unchanged repeated reports. If
+#'   `FALSE`, train on all rows, including grid-completed ones. If
+#'   `"fallback"`, train like `TRUE`, except that a test lag group with no
+#'   genuine training rows trains on all rows. Use `"fallback"` to predict a
+#'   lag that is never reported, e.g. a placeholder for the current week
+#'   before its first report.
 #' @param genuine_testing Logical; if `TRUE`, predict only rows whose
 #'   `genuine_event` value is `TRUE`.
 #' @param model_backend Quantile-regression backend. `"quantreg"` is the
@@ -405,6 +418,8 @@ cv_revision_forecast <- function(df, test_lag, taus=TAUS,
 #' @param taus A numeric vector of quantiles for probabilistic forecasting.
 #' @param lagged_term_list A list of lagged terms to be used as predictors.
 #' @param params_list A list of model parameters for forecasting.
+#' @param extra_params Optional character vector of additional predictor columns
+#'   passed to [revision_forecast()].
 #' @param test_lag_groups A vector of test lag groups to process. When `NULL`,
 #'   daily or weekly defaults are selected from `temporal_resol`.
 #' @param lag_pad A numeric or named list of lag padding values (default: `LAG_PAD`).
@@ -437,6 +452,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
                      smoothed_target=TRUE,
                      lagged_term_list=NULL,
                      params_list=NULL,
+                     extra_params=NULL,
                      lambda=LAMBDA, gamma=GAMMA, lag_pad=LAG_PAD,
                      temporal_resol="daily",
                      lp_solver=LP_SOLVER,
@@ -455,7 +471,10 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
 
   testing_start_date <- as.Date(testing_start_date)
   model_backend <- match.arg(model_backend)
-  validate_genuine_event_options(df, genuine_training, genuine_testing)
+  validate_genuine_event_options(df, genuine_training, genuine_testing,
+                                 allow_training_fallback = TRUE)
+  training_fallback <- identical(genuine_training, "fallback")
+  genuine_training <- !isFALSE(genuine_training)
 
   # ---- Auto-detect temporal resolution from lag spacing ----
   if ("lag" %in% names(df)) {
@@ -481,16 +500,18 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     }
   }
 
-  geo_train_data <- df %>%
+  geo_train_all <- df %>%
     dplyr::filter(.data$report_date < testing_start_date) %>%
     dplyr::filter(.data$target_date <= testing_start_date) %>%
     dplyr::filter(.data$target_date > testing_start_date - training_days)
+  geo_train_data <- geo_train_all
   if (genuine_training) {
     geo_train_data <- geo_train_data %>%
       dplyr::filter(!is.na(.data$genuine_event) & .data$genuine_event)
   }
   # Add weighting-related features to training data
   geo_train_data <- add_weights_related(geo_train_data)
+  if (training_fallback) geo_train_all <- add_weights_related(geo_train_all)
 
   geo_test_data <- df %>%
     dplyr::filter(.data$report_date >= testing_start_date)
@@ -517,6 +538,11 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
     g <- handle_hyperparam(gamma, test_lag_group)
 
     train_data <- data_filteration(test_lag, geo_train_data, l_p)
+    # A lag that is never reported has no genuine rows; its only training
+    # rows are grid-completed.
+    if (training_fallback && nrow(train_data) == 0) {
+      train_data <- data_filteration(test_lag, geo_train_all, l_p)
+    }
     # Sparse reporting cadences can leave an individual lag group with too
     # few genuine revisions. Skip that group instead of aborting the entire
     # location/origin forecast; revision_forecast() requires at least 10 rows.
@@ -528,6 +554,7 @@ DelphiRF <- function(df, testing_start_date, taus=TAUS,
       train_data = train_data, test_data = test_data, taus = taus,
       smoothed_target = smoothed_target,
       lagged_term_list = lagged_term_list, params_list = params_list,
+      extra_params = extra_params,
       temporal_resol = temporal_resol,
       lambda = l, gamma = g, lp_solver = lp_solver,
       test_lag_group = test_lag_group, geo = geo, value_type = value_type,

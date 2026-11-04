@@ -11,6 +11,7 @@ revision_forecast(
   smoothed_target = TRUE,
   lagged_term_list = NULL,
   params_list = NULL,
+  extra_params = NULL,
   temporal_resol = "daily",
   lambda = 0.1,
   gamma = 0.1,
@@ -44,6 +45,9 @@ revision_forecast(
 values on the reference date are considered in model training.}
 
 \item{params_list}{A list of model parameters used for training and prediction.}
+
+\item{extra_params}{Optional character vector of additional predictor columns
+appended to the default parameter list, e.g. from \code{\link[=aux_feature_names]{aux_feature_names()}}.}
 
 \item{temporal_resol}{Character; either \code{"daily"} or \code{"weekly"} resolution.}
 

@@ -17,6 +17,7 @@ data_preprocessing(
   smoothed = FALSE,
   target_lag_lower_tolerance = 0,
   target_lag_upper_tolerance = 0,
+  aux_triangles = NULL,
   target_as_of_date = NULL
 )
 }
@@ -46,6 +47,14 @@ search for genuine target revisions.}
 
 \item{target_lag_upper_tolerance}{Non-negative days after \code{ref_lag} to
 search for genuine target revisions.}
+
+\item{aux_triangles}{Named list of auxiliary reporting-triangle data frames.
+Each element must have columns \code{reference_date}, \code{report_date}, \code{lag}, and
+\code{value} (already filtered to the same single geo as \code{df}).  Each is run
+through the same fill → lag → log pipeline as the primary signal and
+joined to the result; columns are prefixed with the list element name.
+Use \code{\link[=aux_feature_names]{aux_feature_names()}} to obtain the resulting predictor column names
+for \code{\link[=create_params_list]{create_params_list()}}.}
 
 \item{target_as_of_date}{Optional date limiting target construction to
 reports available on or before that date.}
